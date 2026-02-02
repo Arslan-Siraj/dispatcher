@@ -17,6 +17,8 @@ A Streamlit-based web application for scanning barcodes using your camera. It st
 
 ## Installation
 
+### Using pip (venv)
+
 1. Clone the repository:
    ```
    git clone https://github.com/Arslan-Siraj/dispatcher.git
@@ -35,6 +37,24 @@ A Streamlit-based web application for scanning barcodes using your camera. It st
 4. Install dependencies:
    ```
    pip install -r requirements.txt
+   ```
+
+### Using conda
+
+1. Clone the repository:
+   ```
+   git clone https://github.com/Arslan-Siraj/dispatcher.git
+   cd dispatcher
+   ```
+
+2. Create the conda environment:
+   ```
+   conda env create -f environment.yml
+   ```
+
+3. Activate the environment:
+   ```
+   conda activate dispatcher
    ```
 
 ## Usage
