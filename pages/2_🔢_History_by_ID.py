@@ -61,10 +61,22 @@ images_found.sort()
 
 if images_found:
     for img_path in images_found:
+        filename = os.path.basename(img_path)
+
         st.image(
             img_path,
-            caption=os.path.basename(img_path)
+            caption=filename
         )
+
+        with open(img_path, "rb") as f:
+            st.download_button(
+                label=f"⬇️ Download {filename}",
+                data=f,
+                file_name=filename,
+                mime="image/png" if filename.lower().endswith(".png") else "image/jpeg"
+            )
+
+        st.divider()
 
 else:
     st.info("No image available for this Barcode ID.")
