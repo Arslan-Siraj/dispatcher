@@ -43,7 +43,7 @@ class BarcodeScanner(VideoTransformerBase):
                 time.sleep(0.2)
                 winsound.Beep(1000, 1500)
                 engine = pyttsx3.init()
-                engine.say(f"already there at {scanned_codes[barcode_data]}")
+                engine.say(f"Duplicate code found")
                 engine.runAndWait()
             else:
                 timestamp = datetime.datetime.now().isoformat()
@@ -54,6 +54,9 @@ class BarcodeScanner(VideoTransformerBase):
                     writer.writerow([barcode_data, timestamp])
                 os.makedirs("images", exist_ok=True)
                 cv2.imwrite(f"images/{barcode_data}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.png", img)
+                engine = pyttsx3.init()
+                engine.say("Added to the list")
+                engine.runAndWait()
 
             # Draw bounding box
             cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
