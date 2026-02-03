@@ -39,3 +39,33 @@ result = result.sort_values("Timestamp", ascending=False)
 
 st.subheader(f"Results for {barcode}")
 st.dataframe(result, use_container_width=True)
+
+
+IMAGE_DIR = "images"
+
+st.subheader("🖼️ Proof")
+
+images_found = []
+
+if os.path.exists(IMAGE_DIR):
+    for root, dirs, files in os.walk(IMAGE_DIR):
+        for file in files:
+            if (
+                file.lower().endswith((".png", ".jpg", ".jpeg"))
+                and file.startswith(f"{barcode}_")
+            ):
+                images_found.append(os.path.join(root, file))
+
+# Sort images (optional, alphabetical = time-ordered)
+images_found.sort()
+
+if images_found:
+    for img_path in images_found:
+        st.image(
+            img_path,
+            caption=os.path.basename(img_path)
+        )
+
+else:
+    st.info("No image available for this Barcode ID.")
+
