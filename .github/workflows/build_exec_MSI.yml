@@ -147,7 +147,7 @@ jobs:
         cat <<EOF > streamlit_exe.wxs
         <?xml version="1.0"?>
         <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
-          <Product Id="*" Name="${{ env.APP_NAME }}" Language="1033" Version="1.0.0.0" Codepage="1252" Manufacturer="OpenMS Developer Team" UpgradeCode="${{ env.APP_UpgradeCode }}">
+          <Product Id="*" Name="${{ env.APP_NAME }}" Language="1033" Version="1.0.0.0" Codepage="0" Manufacturer="AS solution Team" UpgradeCode="${{ env.APP_UpgradeCode }}">
             <Package Id="*" InstallerVersion="300" Compressed="yes" InstallPrivileges="elevated" Platform="x64" />
             <MediaTemplate EmbedCab="yes" MaximumUncompressedMediaSize="200" CabinetTemplate="data{0}.cab" />
         
@@ -228,11 +228,11 @@ jobs:
 
     - name: Compress Installer
       run: |
-        7z a OpenMS-App.zip ${{ env.APP_NAME }}.msi
+        7z a DispatcherApp.zip ${{ env.APP_NAME }}.msi
 
     - name: Archive build artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: OpenMS-App
+        name: DispatcherApp-MSI
         path: |
-          OpenMS-App.zip
+          DispatcherApp.zip
