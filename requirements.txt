@@ -6,4 +6,5 @@ pyttsx3
 pandas
 geocoder
 pillow
+XlsxWriter
 streamlit-aggrid==0.3.4.post3

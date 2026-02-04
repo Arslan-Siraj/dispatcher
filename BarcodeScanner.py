@@ -15,11 +15,27 @@ import av
 import geocoder
 from PIL import Image
 import piexif
+import base64
 
-# ----------------------------
-# Streamlit setup
-# ----------------------------
+# Streamlit setup (must be first Streamlit command)
 st.set_page_config(page_title="Barcode Scanner", layout="centered")
+
+# Sidebar with logo and version
+with st.sidebar:
+    st.title("📦 Barcode Scanner")
+    
+    # Logo and "Developed by" without space, centered
+    logo_path = "assets/logo-removebg.png"  # Update this path to your logo file
+    if os.path.exists(logo_path):
+        with open(logo_path, "rb") as f:
+            img_data = base64.b64encode(f.read()).decode()
+        st.markdown(f'<div style="text-align: center; line-height: 1;"><img src="data:image/png;base64,{img_data}" width="150" style="margin-bottom: 0px; vertical-align: bottom; display: inline-block;"><span style="color: #AAAAAA; font-size: 14px; margin-top: 0px; vertical-align: bottom; display: inline-block;">Developed by</span></div>', unsafe_allow_html=True)
+    
+    # Version
+    VERSION = "1.0.0"  # Update this with your app version
+    st.markdown(f'<span style="color: #AAAAAA; font-size: 14px; text-align: center; display: block;">DispatcherApp v{VERSION}</span>', unsafe_allow_html=True)
+    
+
 st.title("📦 Packed Product Barcode Scanner")
 
 DATA_DIR = "data"
@@ -28,9 +44,7 @@ IMAGE_DIR = "images"
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(IMAGE_DIR, exist_ok=True)
 
-# ----------------------------
 # Get GPS location
-# ----------------------------
 def get_gps_location():
     try:
         g = geocoder.ip('me')
@@ -43,9 +57,7 @@ def get_gps_location():
 
 WAREHOUSE_LAT, WAREHOUSE_LON = get_gps_location()
 
-# ----------------------------
 # Create GPS EXIF data
-# ----------------------------
 def create_gps_exif(lat, lon):
     def to_dms(coord):
         d = int(coord)
@@ -62,9 +74,7 @@ def create_gps_exif(lat, lon):
     exif_dict = {"GPS": gps_ifd}
     return piexif.dump(exif_dict)
 
-# ----------------------------
 # Format GPS display
-# ----------------------------
 def format_gps_display(lat, lon):
     def to_dms_str(coord, is_lat):
         abs_coord = abs(coord)
@@ -78,9 +88,7 @@ def format_gps_display(lat, lon):
     lon_str = f"Longitude: {to_dms_str(lon, False)}"
     return lat_str, lon_str
 
-# ----------------------------
 # Track current date (auto-rerun on day change)
-# ----------------------------
 today_str = datetime.date.today().isoformat()
 
 if "current_day" not in st.session_state:
@@ -90,9 +98,7 @@ if st.session_state["current_day"] != today_str:
     st.session_state["current_day"] = today_str
     st.rerun()
 
-# ----------------------------
 # Load ALL previous barcodes (global duplicate check)
-# ----------------------------
 if "scanned_codes" not in st.session_state:
     scanned_codes = {}
     for csv_file in glob(os.path.join(DATA_DIR, "*.csv")):
@@ -105,11 +111,8 @@ if "scanned_codes" not in st.session_state:
 else:
     scanned_codes = st.session_state["scanned_codes"]
 
-# ----------------------------
 # Barcode scanner
-# ----------------------------
 VALID_PREFIX = "SPXID06"
-
 
 class BarcodeScanner(VideoProcessorBase):
     def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
@@ -162,39 +165,38 @@ class BarcodeScanner(VideoProcessorBase):
                     csv.writer(csvfile).writerow([barcode_data, timestamp])
 
                 # Overlay metadata BEFORE saving image
-               # Text color: GREEN
                 GREEN = (0, 255, 0)
 
-                text_y = y - 50
-                if text_y < 20:
-                    text_y = y + h + 20  # fallback if barcode is near top
+                # Fixed position: top-left corner to avoid cutting off
+                base_x = 10
+                base_y = 30
 
                 cv2.putText(
                     img, f"ID: {barcode_data}",
-                    (x, text_y),
+                    (base_x, base_y),
                     cv2.FONT_HERSHEY_SIMPLEX,
-                    0.6, GREEN, 2
+                    0.8, GREEN, 3
                 )
 
                 cv2.putText(
                     img, f"Time: {display_time}",
-                    (x, text_y + 20),
+                    (base_x, base_y + 30),
                     cv2.FONT_HERSHEY_SIMPLEX,
-                    0.6, GREEN, 2
+                    0.8, GREEN, 3
                 )
 
                 lat_str, lon_str = format_gps_display(WAREHOUSE_LAT, WAREHOUSE_LON)
                 cv2.putText(
                     img, lat_str,
-                    (x, text_y + 40),
+                    (base_x, base_y + 60),
                     cv2.FONT_HERSHEY_SIMPLEX,
-                    0.5, GREEN, 2
+                    0.7, GREEN, 3
                 )
                 cv2.putText(
                     img, lon_str,
-                    (x, text_y + 60),
+                    (base_x, base_y + 90),
                     cv2.FONT_HERSHEY_SIMPLEX,
-                    0.5, GREEN, 2
+                    0.7, GREEN, 3
                 )
 
                 img_name = f"{barcode_data}_{now.strftime('%H%M%S')}.png"
@@ -216,19 +218,17 @@ class BarcodeScanner(VideoProcessorBase):
 
         return av.VideoFrame.from_ndarray(img, format="bgr24")
 
-
-# ----------------------------
-# Camera
-# ----------------------------
+# Streamlit interface
 webrtc_streamer(
     key="barcode-scanner",
     video_processor_factory=BarcodeScanner,
+    rtc_configuration={
+        "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
+    },
     media_stream_constraints={"video": True, "audio": False},
 )
 
-# ----------------------------
 # Display scanned codes (today only)
-# ----------------------------
 st.subheader(f"✅ Scanned Barcodes ({today_str})")
 
 today_csv = os.path.join(DATA_DIR, f"{today_str}.csv")
