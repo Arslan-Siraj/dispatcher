@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import os
 import datetime
+import io
 
 from st_aggrid import GridOptionsBuilder, AgGrid, GridUpdateMode, ColumnsAutoSizeMode
 
@@ -29,6 +30,20 @@ df = df.sort_values("Timestamp", ascending=False)
 
 st.subheader(f"Scans on {selected_date}")
 st.markdown(f"**Total scans:** {len(df)}")
+# ---- Download table as Excel ----
+excel_buffer = io.BytesIO()
+
+with pd.ExcelWriter(excel_buffer, engine="xlsxwriter") as writer:
+    df.to_excel(writer, index=False, sheet_name="Scan_History")
+
+excel_buffer.seek(0)
+
+st.download_button(
+    label="⬇️ Download table as Excel",
+    data=excel_buffer,
+    file_name=f"scan_history_{selected_date}.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+)
 
 gb = GridOptionsBuilder.from_dataframe(df)
 gb.configure_selection(selection_mode="single", use_checkbox=True)
