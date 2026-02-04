@@ -6,3 +6,4 @@ pyttsx3
 pandas
 geocoder
 pillow
+streamlit-aggrid==0.3.4.post3
