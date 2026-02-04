@@ -7,6 +7,9 @@ import io
 from st_aggrid import GridOptionsBuilder, AgGrid, GridUpdateMode, ColumnsAutoSizeMode
 
 st.title("📅 Scan History by Date")
+from app_helper import show_app_dev_info
+show_app_dev_info()
+
 
 DATA_DIR = "data"
 IMAGE_DIR = "images"
@@ -104,3 +107,5 @@ if selected_row:
             st.divider()
     else:
         st.info("No image available for this Barcode ID.")
+
+

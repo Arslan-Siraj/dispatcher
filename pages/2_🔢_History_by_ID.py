@@ -3,6 +3,8 @@ import pandas as pd
 import os
 
 st.title("🔢 Scan History by Barcode ID")
+from app_helper import show_app_dev_info
+show_app_dev_info()
 
 DATA_DIR = "data"
 
