@@ -22,7 +22,6 @@ st.set_page_config(page_title="Barcode Scanner", layout="centered")
 
 # Sidebar with logo and version
 with st.sidebar:
-    st.title("📦 Barcode Scanner")
     
     # Logo and "Developed by" without space, centered
     logo_path = "assets/logo-removebg.png"  # Update this path to your logo file
@@ -33,7 +32,7 @@ with st.sidebar:
     
     # Version
     VERSION = "1.0.0"  # Update this with your app version
-    st.markdown(f'<span style="color: #AAAAAA; font-size: 14px; text-align: center; display: block;">DispatcherApp v{VERSION}</span>', unsafe_allow_html=True)
+    st.markdown(f'<span style="color: #AAAAAA; font-size: 14px; text-align: center; display: block; margin-top: 10px;">DispatcherApp v{VERSION}</span>', unsafe_allow_html=True)
     
 
 st.title("📦 Packed Product Barcode Scanner")
