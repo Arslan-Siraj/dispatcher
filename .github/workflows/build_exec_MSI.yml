@@ -1,150 +1,172 @@
-name: Build Windows Executable (.msi)
-
+name: Build executable for Windows
 on:
- push:
-    branches: 
-      - main
- workflow_dispatch:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
 
 env:
   PYTHON_VERSION: 3.11.4
-  APP_UpgradeCode: "06010198-549d-42d4-b29a-32e770082da9"
+  # Name of the installer
   APP_NAME: DispatcherApp
+  # Define unique GUID for UpgradeCode
+  APP_UpgradeCode: "06010198-549d-42d4-b29a-32e770082da9"
 
 jobs:
   build-executable:
     runs-on: windows-2022
 
-    env:
-      PYTHON_VERSION: 3.11.4
-      APP_NAME: DispatcherApp
-
     steps:
     - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Set up Python
+    - name: Set up Python (regular distribution)
       uses: actions/setup-python@v5
       with:
-        python-version: ${{ env.PYTHON_VERSION }}
-
+        python-version: ${{ env.PYTHON_VERSION }} # Use the same version as the embeddable version
+    
     - name: Setup python embeddable version
       run: |
+        # Create a directory for the embeddable Python version
         mkdir python-${{ env.PYTHON_VERSION }}
+        
+        # Download and unzip the embeddable Python version
         curl -O https://www.python.org/ftp/python/${{ env.PYTHON_VERSION }}/python-${{ env.PYTHON_VERSION }}-embed-amd64.zip
         unzip python-${{ env.PYTHON_VERSION }}-embed-amd64.zip -d python-${{ env.PYTHON_VERSION }}
         rm python-${{ env.PYTHON_VERSION }}-embed-amd64.zip
 
-        $PYTHON_DIR="${{ runner.tool_cache }}/Python/${{ env.PYTHON_VERSION }}/x64"
+        # Define paths for the regular Python distribution and the embeddable distribution
+        $PYTHON_DIR="${{ runner.tool_cache }}/Python/${{ env.PYTHON_VERSION }}/x64" # Path from actions/setup-python
         $EMBED_DIR="python-${{ env.PYTHON_VERSION }}"
-
+        
         mkdir -p $EMBED_DIR/Lib/site-packages/tkinter
         mkdir -p $EMBED_DIR/tcl
+
+        # Copy necessary Tkinter files from the regular Python distribution
         cp -r $PYTHON_DIR/Lib/tkinter/* $EMBED_DIR/Lib/site-packages/tkinter/
         cp -r $PYTHON_DIR/tcl/* $EMBED_DIR/tcl/
         cp $PYTHON_DIR/DLLs/_tkinter.pyd $EMBED_DIR/
         cp $PYTHON_DIR/DLLs/tcl86t.dll $EMBED_DIR/
         cp $PYTHON_DIR/DLLs/tk86t.dll $EMBED_DIR/
 
-    - name: Bundle MSVC runtime DLLs
-      shell: powershell
-      run: |
-        $embed = "python-${{ env.PYTHON_VERSION }}"
-        $dlls = @(
-          "vcomp140.dll",
-          "vcruntime140.dll",
-          "vcruntime140_1.dll",
-          "msvcp140.dll"
-        )
-        foreach ($dll in $dlls) {
-          Copy-Item "C:\Windows\System32\$dll" "$embed\$dll" -Force
-        }
-
-    - name: Install pip
-      run: |
-        curl -O https://bootstrap.pypa.io/get-pip.py
-        ./python-${{ env.PYTHON_VERSION }}/python get-pip.py --no-warn-script-location
-        rm get-pip.py
-
     - name: Uncomment 'import site' in python311._pth file
       run: |
         sed -i 's/#import site/import site/' python-${{ env.PYTHON_VERSION }}/python311._pth
 
-    - name: Create launcher .bat file
+    - name: Install Required Packages
+      # Use system Python (which has development headers) to compile packages,
+      # installing into the embeddable Python's site-packages directory.
+      # The embeddable Python lacks Python.h headers needed for native extensions.
+      run: python -m pip install -r requirements.txt --target python-${{ env.PYTHON_VERSION }}/Lib/site-packages --upgrade --no-warn-script-location
+
+    - name: Clean up unnecessary Python files
       shell: pwsh
       run: |
-        $batContent = @"
-        @echo off
-        set PYTHON=.\python-${{ env.PYTHON_VERSION }}\python
-        set REQ=.\requirements.txt
-        set MARKER=.\python-${{ env.PYTHON_VERSION }}\.deps_installed
-        
-        if exist "%MARKER%" goto RUN_APP
-        echo Preparing Python environment...
-        "%PYTHON%" -m ensurepip >nul 2>&1
-        "%PYTHON%" -m pip install -r "%REQ%" --no-warn-script-location
-        if errorlevel 1 exit /b 1
-        ren "streamlit" ".streamlit"
-        echo OK>"%MARKER%"
-        :RUN_APP
-        start /min "" "%PYTHON%" -m streamlit run BarcodeScanner.py
-        "@
-        $batContent | Set-Content -Encoding ASCII "${{ env.APP_NAME }}.bat"
+        $sitePkgs = "py/Lib/site-packages"
+
+        # Remove __pycache__ directories
+        Get-ChildItem -Path $sitePkgs -Recurse -Directory -Filter "__pycache__" | Remove-Item -Recurse -Force
+
+        # Remove test directories
+        Get-ChildItem -Path $sitePkgs -Recurse -Directory | Where-Object { $_.Name -match "^tests?$" } | Remove-Item -Recurse -Force
+
+        # Count remaining files
+        $count = (Get-ChildItem -Path $sitePkgs -Recurse -File).Count
+        Write-Host "Remaining files in site-packages: $count"
+
+    - name: Create .bat file
+      run: |
+        echo '@echo off' > ${{ env.APP_NAME }}.bat
+        echo 'setlocal EnableDelayedExpansion' > ${{ env.APP_NAME }}.bat
+        echo '' >> ${{ env.APP_NAME }}.bat
+        echo 'REM Set OpenMS data path for TOPP tools' >> ${{ env.APP_NAME }}.bat
+        echo 'set OPENMS_DATA_PATH=%~dp0share\OpenMS' >> ${{ env.APP_NAME }}.bat
+        echo '' >> ${{ env.APP_NAME }}.bat
+        echo 'REM Add each subfolder in share\OpenMS\THIRDPARTY to PATH' >> ${{ env.APP_NAME }}.bat
+        echo 'for /D %%D in ("%OPENMS_DATA_PATH%\THIRDPARTY\*") do (' >> ${{ env.APP_NAME }}.bat
+        echo '    set "PATH=!PATH!;%%D"' >> ${{ env.APP_NAME }}.bat
+        echo ')' >> ${{ env.APP_NAME }}.bat
+        echo '' >> ${{ env.APP_NAME }}.bat
+        echo 'REM Create .streamlit directory in user''s home if it doesn''t exist' >> ${{ env.APP_NAME }}.bat
+        echo 'if not exist "%USERPROFILE%\.streamlit" mkdir "%USERPROFILE%\.streamlit"' >> ${{ env.APP_NAME }}.bat
+        echo '' >> ${{ env.APP_NAME }}.bat
+        echo 'REM Create credentials.toml with empty email to disable email prompt' >> ${{ env.APP_NAME }}.bat
+        echo 'copy /Y ".streamlit\credentials.toml" "%USERPROFILE%\.streamlit\credentials.toml" > nul' >> ${{ env.APP_NAME }}.bat
+        echo '' >> ${{ env.APP_NAME }}.bat
+        echo 'start /min .\python-${{ env.PYTHON_VERSION }}\python -m streamlit run app.py local' >> ${{ env.APP_NAME }}.bat
 
     - name: Create All-in-one executable folder
-      shell: bash
       run: |
-        rm -rf streamlit_exe
-        mkdir -p streamlit_exe
+        mkdir streamlit_exe
+
         mv python-${{ env.PYTHON_VERSION }} streamlit_exe
         cp -r assets streamlit_exe
+        cp -r .streamlit streamlit_exe
         cp -r pages streamlit_exe
-        cp BarcodeScanner.py streamlit_exe
-        cp app_helper.py streamlit_exe
         cp ${{ env.APP_NAME }}.bat streamlit_exe
-        cp requirements.txt streamlit_exe
-
-    - name: Create Streamlit config
-      shell: bash
-      run: |
-        mkdir -p streamlit_exe/streamlit
-        cat <<'EOF' > streamlit_exe/streamlit/config.toml
-        [global]
-        developmentMode = false
-        [server]
-        maxUploadSize = 50000
-        port = 8505
-        [theme]
-        primaryColor = "#29379b"
-        EOF
 
     - name: Generate Readme.txt
       shell: bash
       run: |
         cat <<EOF > streamlit_exe/Readme.txt
-        Welcome to ${{ env.APP_NAME }}!
-        Launch the app by double-clicking ${{ env.APP_NAME }}.bat
-        EOF
+        Welcome to ${{ env.APP_NAME }} app!
 
+        To launch the application:
+        1. Navigate to the installation directory.
+        2. Double-click on the file: ${{ env.APP_NAME }}.bat or ${{ env.APP_NAME }} shortcut.
+
+        Additional Information:
+        - If multiple Streamlit apps are running, you can change the port in the .streamlit/config.toml file.
+          Example:
+            [server]
+            port = 8502
+
+        Reach out to us:
+        - Join our Discord server for support and community discussions: https://discord.com/invite/4TAGhqJ7s5
+        - Contribute or stay updated with the latest OpenMS web app developments on GitHub: https://github.com/OpenMS/streamlit-template
+        - Visit our website for more information: https://openms.de/
+        
+        Thank you for using ${{ env.APP_NAME }}!
+        EOF
+        
     - name: Install WiX Toolset
       run: |
         curl -LO https://github.com/wixtoolset/wix3/releases/download/wix3111rtm/wix311-binaries.zip
         unzip wix311-binaries.zip -d wix
         rm wix311-binaries.zip
-
+    
     - name: Build .wxs for streamlit_exe folder
       run: |
         ./wix/heat.exe dir streamlit_exe -gg -sfrag -sreg -srd -template component -cg StreamlitExeFiles -dr AppSubFolder -out streamlit_exe_files.wxs
+    
+    - name: Generate VBScript file
+      shell: bash
+      run: |
+        cat <<EOF > ShowSuccessMessage.vbs
+        MsgBox "The ${{ env.APP_NAME }} application is successfully installed.", vbInformation, "Installation Complete"
+        EOF
 
-    - name: Generate WiX XML file (UTF-8)
+    - name: Prepare SourceDir
+      run: |
+        mkdir SourceDir
+        mv streamlit_exe/* SourceDir
+        cp ShowSuccessMessage.vbs SourceDir
+        cp assets/LICENSE.rtf SourceDir
+        # Logo of app
+        cp assets/dispatch.ico SourceDir
+        
+    - name: Generate WiX XML file
       shell: bash
       run: |
         cat <<EOF > streamlit_exe.wxs
-        <?xml version="1.0" encoding="UTF-8"?>
+        <?xml version="1.0"?>
         <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
-          <Product Id="*" Name="${{ env.APP_NAME }}" Language="1033" Version="1.0.0.0" Codepage="65001" Manufacturer="OpenMS Developer Team" UpgradeCode="${{ env.APP_UpgradeCode }}">
+          <Product Id="*" Name="${{ env.APP_NAME }}" Language="1033" Version="1.0.0.0" Codepage="1252" Manufacturer="OpenMS Developer Team" UpgradeCode="${{ env.APP_UpgradeCode }}">
             <Package Id="*" InstallerVersion="300" Compressed="yes" InstallPrivileges="elevated" Platform="x64" />
-            <Media Id="1" Cabinet="streamlit.cab" EmbedCab="yes" />
+            <MediaTemplate EmbedCab="yes" MaximumUncompressedMediaSize="200" CabinetTemplate="data{0}.cab" />
+        
+            <!-- Folder structure -->
             <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
             <Directory Id="TARGETDIR" Name="SourceDir">
               <Directory Id="ProgramFilesFolder"> 
@@ -159,24 +181,73 @@ jobs:
               </Directory>
               <Directory Id="DesktopFolder" />
             </Directory>
+        
+            <!-- Add components -->
             <Feature Id="MainFeature" Title="Main Application" Level="1">
               <ComponentGroupRef Id="StreamlitExeFiles" />
               <ComponentRef Id="CreateAppFolder" />
+              <ComponentRef Id="DesktopShortcutComponent" />
+              <ComponentRef Id="InstallDirShortcutComponent" />
             </Feature>
+        
+            <!-- Create shortcut for running app on desktop -->
+            <Component Id="DesktopShortcutComponent" Guid="3597b243-9180-4d0b-b105-30d8b0d1a334" Directory="DesktopFolder">
+              <Shortcut Id="DesktopShortcut" Name="${{ env.APP_NAME }}" Description="Launch ${{ env.APP_NAME }}" Target="[AppSubFolder]${{ env.APP_NAME }}.bat" WorkingDirectory="AppSubFolder" Icon="AppIcon" />
+              <RegistryValue Root="HKCU" Key="Software\\OpenMS\\${{ env.APP_NAME }}" Name="DesktopShortcut" Type="integer" Value="1" KeyPath="yes" />
+            </Component>
+        
+            <!-- Create shortcut for running app in installer folder -->
+            <Component Id="InstallDirShortcutComponent" Guid="c2df9472-3b45-4558-a56d-6034cf7c8b72" Directory="AppSubFolder">
+              <Shortcut Id="InstallDirShortcut" Name="${{ env.APP_NAME }}" Description="Launch ${{ env.APP_NAME }}" Target="[AppSubFolder]${{ env.APP_NAME }}.bat" WorkingDirectory="AppSubFolder" Icon="AppIcon" />
+              <RegistryValue Root="HKCU" Key="Software\\OpenMS\\${{ env.APP_NAME }}" Name="InstallFolderShortcut" Type="integer" Value="1" KeyPath="yes" />
+            </Component>
+        
+            <!-- Provide icon here; it should exist in the SourceDir folder -->
+            <Icon Id="AppIcon" SourceFile="SourceDir/dispatch.ico" />
+        
+            <!-- Run app directly after installation -->
+            <!-- <CustomAction Id="RunApp" Directory="AppSubFolder" Execute="deferred" Return="asyncNoWait" Impersonate="no"
+                          ExeCommand="cmd.exe /c &quot;[AppSubFolder]${{ env.APP_NAME }}.bat&quot;" /> -->
+            
+            <!-- Custom Action to Show Success Message -->
+            <Binary Id="ShowMessageScript" SourceFile="SourceDir/ShowSuccessMessage.vbs" />
+            <CustomAction Id="ShowSuccessMessage" BinaryKey="ShowMessageScript" VBScriptCall="" Execute="immediate" Return="check" />
+        
+            <!-- Add all Custom Actions -->
+            <InstallExecuteSequence>
+              <!-- Custom action display success message -->
+              <Custom Action="ShowSuccessMessage" After="InstallFinalize">NOT Installed</Custom>
+              <!-- Run app directly after installation -->
+              <!-- <Custom Action="RunApp" Before="InstallFinalize">NOT REMOVE</Custom> -->
+            </InstallExecuteSequence>
+        
+            <!-- Interface options -->
+            <UI>
+                  <UIRef Id="WixUI_InstallDir" />
+                  <UIRef Id="WixUI_ErrorProgressText" />
+            </UI> 
+        
+            <!-- Provide license; it should exist in the SourceDir folder -->
+            <WixVariable Id="WixUILicenseRtf" Value="SourceDir/LICENSE.rtf" />
           </Product>
         </Wix>
         EOF
 
-    - name: Build .wixobj with candle.exe
+    - name: Build .wixobj file with candle.exe
       run: |
         ./wix/candle.exe streamlit_exe.wxs streamlit_exe_files.wxs
-
-    - name: Link .wixobj into .msi with light.exe
+        
+    - name: Link .wixobj file into .msi with light.exe
       run: |
         ./wix/light.exe -ext WixUIExtension -sice:ICE60 -o ${{ env.APP_NAME }}.msi streamlit_exe_files.wixobj streamlit_exe.wixobj
+
+    - name: Compress Installer
+      run: |
+        7z a OpenMS-App.zip ${{ env.APP_NAME }}.msi
 
     - name: Archive build artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ env.APP_NAME }}
-        path: ${{ env.APP_NAME }}.msi
+        name: OpenMS-App
+        path: |
+          OpenMS-App.zip
