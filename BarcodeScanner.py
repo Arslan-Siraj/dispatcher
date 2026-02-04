@@ -12,6 +12,9 @@ from glob import glob
 import pandas as pd
 from streamlit_webrtc import VideoProcessorBase
 import av
+import geocoder
+from PIL import Image
+import piexif
 
 # ----------------------------
 # Streamlit setup
@@ -26,10 +29,54 @@ os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(IMAGE_DIR, exist_ok=True)
 
 # ----------------------------
-# Static GPS location (EDIT IF NEEDED)
+# Get GPS location
 # ----------------------------
-WAREHOUSE_LAT = 24.8607
-WAREHOUSE_LON = 67.0011
+def get_gps_location():
+    try:
+        g = geocoder.ip('me')
+        if g.ok:
+            return g.latlng
+        else:
+            return [24.8607, 67.0011]  # fallback
+    except:
+        return [24.8607, 67.0011]  # fallback
+
+WAREHOUSE_LAT, WAREHOUSE_LON = get_gps_location()
+
+# ----------------------------
+# Create GPS EXIF data
+# ----------------------------
+def create_gps_exif(lat, lon):
+    def to_dms(coord):
+        d = int(coord)
+        m = int((coord - d) * 60)
+        s = (coord - d - m/60) * 3600
+        return [(d, 1), (m, 1), (int(s * 100), 100)]
+    
+    gps_ifd = {
+        piexif.GPSIFD.GPSLatitudeRef: 'N' if lat >= 0 else 'S',
+        piexif.GPSIFD.GPSLatitude: to_dms(abs(lat)),
+        piexif.GPSIFD.GPSLongitudeRef: 'E' if lon >= 0 else 'W',
+        piexif.GPSIFD.GPSLongitude: to_dms(abs(lon)),
+    }
+    exif_dict = {"GPS": gps_ifd}
+    return piexif.dump(exif_dict)
+
+# ----------------------------
+# Format GPS display
+# ----------------------------
+def format_gps_display(lat, lon):
+    def to_dms_str(coord, is_lat):
+        abs_coord = abs(coord)
+        d = int(abs_coord)
+        m = int((abs_coord - d) * 60)
+        s = (abs_coord - d - m/60) * 3600
+        dir = 'N' if coord >= 0 and is_lat else 'S' if is_lat else 'E' if coord >= 0 else 'W'
+        return f"{coord:.6f} / {dir} {d}° {m}' {s:.3f}''"
+    
+    lat_str = f"Latitude: {to_dms_str(lat, True)}"
+    lon_str = f"Longitude: {to_dms_str(lon, False)}"
+    return lat_str, lon_str
 
 # ----------------------------
 # Track current date (auto-rerun on day change)
@@ -136,15 +183,25 @@ class BarcodeScanner(VideoProcessorBase):
                     0.6, GREEN, 2
                 )
 
+                lat_str, lon_str = format_gps_display(WAREHOUSE_LAT, WAREHOUSE_LON)
                 cv2.putText(
-                    img, f"GPS: {WAREHOUSE_LAT}, {WAREHOUSE_LON}",
+                    img, lat_str,
                     (x, text_y + 40),
                     cv2.FONT_HERSHEY_SIMPLEX,
-                    0.6, GREEN, 2
+                    0.5, GREEN, 2
+                )
+                cv2.putText(
+                    img, lon_str,
+                    (x, text_y + 60),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.5, GREEN, 2
                 )
 
                 img_name = f"{barcode_data}_{now.strftime('%H%M%S')}.png"
-                cv2.imwrite(os.path.join(today_image_dir, img_name), img)
+                # Save with GPS EXIF
+                pil_img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+                exif_bytes = create_gps_exif(WAREHOUSE_LAT, WAREHOUSE_LON)
+                pil_img.save(os.path.join(today_image_dir, img_name), exif=exif_bytes)
 
                 winsound.Beep(1200, 300)
                 engine = pyttsx3.init()
