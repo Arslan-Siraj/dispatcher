@@ -23,17 +23,26 @@ st.set_page_config(page_title="Barcode Scanner", layout="centered")
 # Sidebar with logo and version
 with st.sidebar:
     
-    # Logo and "Developed by" without space, centered
-    logo_path = "assets/logo-removebg.png"  # Update this path to your logo file
+    # Spacer to push text down
+    st.markdown('<div style="margin-top: 400px;"></div>', unsafe_allow_html=True)
+
+    logo_path = "assets/logo-removebg.png"
     if os.path.exists(logo_path):
         with open(logo_path, "rb") as f:
             img_data = base64.b64encode(f.read()).decode()
-        st.markdown(f'<div style="text-align: center; line-height: 1;"><img src="data:image/png;base64,{img_data}" width="150" style="margin-bottom: 0px; vertical-align: bottom; display: inline-block;"><span style="color: #AAAAAA; font-size: 14px; margin-top: 0px; vertical-align: bottom; display: inline-block;">Developed by</span></div>', unsafe_allow_html=True)
-    
-    # Version
-    VERSION = "1.0.0"  # Update this with your app version
-    st.markdown(f'<span style="color: #AAAAAA; font-size: 14px; text-align: center; display: block; margin-top: 10px;">DispatcherApp v{VERSION}</span>', unsafe_allow_html=True)
-    
+        st.markdown(f'''
+        <div style="text-align: center; line-height: 1; margin-top: 20px;">
+            <img src="data:image/png;base64,{img_data}" width="150" style="display:block; margin: 0 auto 5px auto;">
+        </div>
+        ''', unsafe_allow_html=True)
+
+    # Developed by + version
+    st.markdown('''
+    <div style="text-align: center; color: #AAAAAA; font-size: 14px;">
+        Developed by<br>
+        DispatcherApp v1.0.0
+    </div>
+    ''', unsafe_allow_html=True)
 
 st.title("📦 Packed Product Barcode Scanner")
 
