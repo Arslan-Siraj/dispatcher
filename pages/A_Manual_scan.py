@@ -51,16 +51,17 @@ def create_gps_exif(lat, lon):
     def to_dms(coord):
         d = int(coord)
         m = int((coord - d) * 60)
-        s = (coord - d - m / 60) * 3600
+        s = (coord - d - m/60) * 3600
         return [(d, 1), (m, 1), (int(s * 100), 100)]
-
+    
     gps_ifd = {
-        piexif.GPSIFD.GPSLatitudeRef: "N" if lat >= 0 else "S",
+        piexif.GPSIFD.GPSLatitudeRef: 'N' if lat >= 0 else 'S',
         piexif.GPSIFD.GPSLatitude: to_dms(abs(lat)),
-        piexif.GPSIFD.GPSLongitudeRef: "E" if lon >= 0 else "W",
+        piexif.GPSIFD.GPSLongitudeRef: 'E' if lon >= 0 else 'W',
         piexif.GPSIFD.GPSLongitude: to_dms(abs(lon)),
     }
-    return piexif.dump({"GPS": gps_ifd})
+    exif_dict = {"GPS": gps_ifd}
+    return piexif.dump(exif_dict)
 
 def format_gps_display(lat, lon):
     return (
@@ -100,7 +101,22 @@ class CameraProcessor(VideoProcessorBase):
 # --------------------------------------------------
 st.subheader("📝 Manual Barcode Entry")
 
-barcode_id = st.text_input("Enter Barcode ID").strip()
+VALID_PREFIX = "SPXID06"
+
+barcode_input = st.text_input(
+    "Enter Barcode ID",
+    value=VALID_PREFIX,
+    key="barcode_input"
+)
+
+# Enforce prefix (auto-fix if user deletes/changes it)
+if not barcode_input.startswith(VALID_PREFIX):
+    barcode_input = VALID_PREFIX
+    st.session_state["barcode_input"] = VALID_PREFIX
+
+barcode_id = barcode_input.strip()
+barcode_suffix = barcode_id[len(VALID_PREFIX):]
+
 capture_btn = st.button("📸 Capture & Save")
 
 # --------------------------------------------------

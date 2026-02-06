@@ -8,14 +8,28 @@ show_app_dev_info()
 
 DATA_DIR = "data"
 
-barcode = st.text_input(
+VALID_PREFIX = "SPXID06"
+
+# ---- Ensure prefix exists BEFORE widget creation ----
+if "barcode_input" not in st.session_state:
+    st.session_state.barcode_input = VALID_PREFIX
+elif not st.session_state.barcode_input.startswith(VALID_PREFIX):
+    st.session_state.barcode_input = VALID_PREFIX
+
+# ---- Text input (prefix already visible) ----
+barcode_input = st.text_input(
     "Enter Barcode ID",
-    placeholder="SPXID062253688982"
+    key="barcode_input",
+    placeholder="2253688982"
 )
 
-if not barcode:
-    st.info("Enter a Barcode ID to search.")
+barcode = barcode_input.strip()
+
+# ---- Stop until user types suffix ----
+if barcode == VALID_PREFIX:
+    st.info("Please enter the barcode number after PXID06.")
     st.stop()
+
 
 records = []
 
