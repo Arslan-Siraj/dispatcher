@@ -3,10 +3,12 @@ import pandas as pd
 import os
 
 st.title("🔢 Scan History by Barcode ID")
+
 from app_helper import show_app_dev_info
 show_app_dev_info()
 
 DATA_DIR = "data"
+IMAGE_DIR = "images"
 
 VALID_PREFIX = "SPXID06"
 
@@ -20,19 +22,19 @@ elif not st.session_state.barcode_input.startswith(VALID_PREFIX):
 barcode_input = st.text_input(
     "Enter Barcode ID",
     key="barcode_input",
-    placeholder="2253688982"
+    placeholder="SPXID06XXXXXXXXXX"
 )
 
 barcode = barcode_input.strip()
 
 # ---- Stop until user types suffix ----
 if barcode == VALID_PREFIX:
-    st.info("Please enter the barcode number after PXID06.")
+    st.info("Please enter the barcode number after SPXID06.")
     st.stop()
-
 
 records = []
 
+# ---- EXACT MATCH SEARCH IN CSV FILES ----
 for file in os.listdir(DATA_DIR):
     if file.endswith(".csv"):
         date = file.replace(".csv", "")
@@ -40,8 +42,12 @@ for file in os.listdir(DATA_DIR):
             os.path.join(DATA_DIR, file),
             names=["Barcode_ID", "Timestamp"]
         )
+
         df["Timestamp"] = pd.to_datetime(df["Timestamp"], errors="coerce")
-        df = df[df["Barcode_ID"].str.contains(barcode, case=False, na=False)]
+
+        # 🔒 EXACT barcode match (no partial results)
+        df = df[df["Barcode_ID"] == barcode]
+
         if not df.empty:
             df["Date"] = date
             records.append(df)
@@ -56,9 +62,9 @@ result = result.sort_values("Timestamp", ascending=False)
 st.subheader(f"Results for {barcode}")
 st.dataframe(result, use_container_width=True)
 
-
-IMAGE_DIR = "images"
-
+# ----------------------------
+# Image Proof Section
+# ----------------------------
 st.subheader("🖼️ Proof")
 
 images_found = []
@@ -72,17 +78,13 @@ if os.path.exists(IMAGE_DIR):
             ):
                 images_found.append(os.path.join(root, file))
 
-# Sort images (optional, alphabetical = time-ordered)
 images_found.sort()
 
 if images_found:
     for img_path in images_found:
         filename = os.path.basename(img_path)
 
-        st.image(
-            img_path,
-            caption=filename
-        )
+        st.image(img_path, caption=filename)
 
         with open(img_path, "rb") as f:
             st.download_button(
@@ -93,7 +95,5 @@ if images_found:
             )
 
         st.divider()
-
 else:
     st.info("No image available for this Barcode ID.")
-

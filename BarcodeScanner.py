@@ -227,7 +227,6 @@ if os.path.exists(today_csv):
         df_today["Timestamp"] = pd.to_datetime(df_today["Timestamp"], errors="coerce")
         df_today = df_today.dropna(subset=["Timestamp"])
         df_today = df_today.sort_values("Timestamp", ascending=False)
-        df_today = df_today.head(20)
         df_today.insert(0, "No.", range(1, len(df_today) + 1))
 
         st.dataframe(df_today, use_container_width=True, hide_index=True)

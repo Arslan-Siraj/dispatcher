@@ -218,7 +218,7 @@ if os.path.exists(today_csv):
         df["Timestamp"] = pd.to_datetime(df["Timestamp"], errors="coerce")
         df = df.dropna().sort_values("Timestamp", ascending=False)
         df.insert(0, "No.", range(1, len(df) + 1))
-        st.dataframe(df.head(20), use_container_width=True, hide_index=True)
+        st.dataframe(df, use_container_width=True, hide_index=True)
     else:
         st.info("No barcode scanned today.")
 else:
