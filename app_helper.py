@@ -23,6 +23,6 @@ def show_app_dev_info():
         st.markdown('''
         <div style="text-align: center; color: #AAAAAA; font-size: 14px;">
             Developed by<br>
-            DispatcherApp v1.0.0
+            DispatcherApp v1.0.1
         </div>
         ''', unsafe_allow_html=True)
