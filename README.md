@@ -34,4 +34,4 @@
 
 ## Installation
 
-1. Download from GithubActions:
+1. Download windows executable from [here](https://github.com/Arslan-Siraj/dispatcher/releases/tag/1.0.1)
