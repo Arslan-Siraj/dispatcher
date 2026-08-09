@@ -2,6 +2,7 @@ import datetime
 import html
 import io
 import os
+import re
 
 import pandas as pd
 import streamlit as st
@@ -27,6 +28,82 @@ show_app_dev_info()
 # =========================================================
 
 DATA_DIR = "data"
+
+SHOPEE_PREFIX = "SPXID06"
+SHOPEE_DIGITS = 10
+
+JNT_PREFIX = "J"
+JNT_REMAINING_CHARS = 11
+
+ANTERAJA_PREFIX = "1"
+ANTERAJA_LENGTH = 14
+
+COURIER_OPTIONS = [
+    "All",
+    "Shopee SPX",
+    "J&T Express",
+    "AnterAja",
+]
+
+SHOPEE_PATTERN = re.compile(
+    rf"^{re.escape(SHOPEE_PREFIX)}"
+    rf"\d{{{SHOPEE_DIGITS}}}$"
+)
+
+JNT_PATTERN = re.compile(
+    rf"^{re.escape(JNT_PREFIX)}"
+    rf"[A-Z0-9]{{{JNT_REMAINING_CHARS}}}$"
+)
+
+ANTERAJA_PATTERN = re.compile(
+    rf"^{re.escape(ANTERAJA_PREFIX)}"
+    rf"\d{{{ANTERAJA_LENGTH - 1}}}$"
+)
+
+
+def detect_courier(barcode):
+    """
+    Detect courier from Dispatcher ID.
+
+    Shopee SPX:
+        SPXID06 + 10 digits
+
+    J&T Express:
+        12 characters total
+        starts with J
+        remaining characters A-Z / 0-9
+
+    AnterAja:
+        14 digits total
+        starts with 1
+    """
+
+    if barcode is None:
+        return "Unknown"
+
+    barcode = (
+        str(barcode)
+        .strip()
+        .upper()
+    )
+
+    if SHOPEE_PATTERN.fullmatch(
+        barcode
+    ):
+        return "Shopee SPX"
+
+    if JNT_PATTERN.fullmatch(
+        barcode
+    ):
+        return "J&T Express"
+
+    if ANTERAJA_PATTERN.fullmatch(
+        barcode
+    ):
+        return "AnterAja"
+
+    return "Unknown"
+
 
 os.makedirs(
     DATA_DIR,
@@ -297,6 +374,13 @@ def read_scan_file(file_path):
         .str.strip()
     )
 
+    df["Courier"] = (
+        df["Barcode_ID"]
+        .map(
+            detect_courier
+        )
+    )
+
     df["Timestamp"] = pd.to_datetime(
         df["Timestamp"],
         errors="coerce",
@@ -329,12 +413,14 @@ def create_excel_file(
     Create an Excel file with:
 
         dispatcher_id
+        courier
         date
     """
 
     download_df = dataframe[
         [
             "Barcode_ID",
+            "Courier",
             "Timestamp",
         ]
     ].copy()
@@ -349,6 +435,7 @@ def create_excel_file(
     download_df = download_df.rename(
         columns={
             "Barcode_ID": "dispatcher_id",
+            "Courier": "courier",
             "Timestamp": "date",
         }
     )
@@ -399,6 +486,11 @@ def create_excel_file(
 
         worksheet.set_column(
             "B:B",
+            18,
+        )
+
+        worksheet.set_column(
+            "C:C",
             22,
         )
 
@@ -448,13 +540,29 @@ SELECT SCAN DATE
         unsafe_allow_html=True,
     )
 
-    selected_date = st.date_input(
-        "Select scan date",
-        value=datetime.date.today(),
-        max_value=datetime.date.today(),
-        key="history_selected_date",
-        label_visibility="collapsed",
+    date_col, courier_col = st.columns(
+        [2, 1]
     )
+
+    with date_col:
+
+        selected_date = st.date_input(
+            "Select scan date",
+            value=datetime.date.today(),
+            max_value=datetime.date.today(),
+            key="history_selected_date",
+            label_visibility="collapsed",
+        )
+
+    with courier_col:
+
+        selected_courier = st.selectbox(
+            "Courier",
+            COURIER_OPTIONS,
+            index=0,
+            key="history_courier_filter",
+            label_visibility="collapsed",
+        )
 
     selected_date_str = (
         selected_date.isoformat()
@@ -506,6 +614,21 @@ There are no successful scans recorded for
         df_date = read_scan_file(
             selected_file
         )
+
+        if (
+            selected_courier
+            != "All"
+        ):
+
+            df_date = (
+                df_date[
+                    df_date["Courier"]
+                    == selected_courier
+                ]
+                .reset_index(
+                    drop=True
+                )
+            )
 
 
         # =================================================
@@ -586,7 +709,7 @@ Daily Summary
 </div>
 
 <div class="section-subtitle">
-Successful scans recorded on {selected_date_str}
+Successful scans recorded on {selected_date_str} · Courier: {selected_courier}
 </div>
 """,
                 unsafe_allow_html=True,
@@ -692,6 +815,12 @@ All successful Dispatcher IDs for the selected date
                             width="large",
                         )
                     ),
+                    "Courier": (
+                        st.column_config.TextColumn(
+                            "Courier",
+                            width="medium",
+                        )
+                    ),
                     "Date": (
                         st.column_config.TextColumn(
                             "Date",
@@ -762,19 +891,47 @@ SEARCH DISPATCHER ID
     )
 
 
-    barcode_query = st.text_input(
-        "Search Dispatcher ID",
-        placeholder=(
-            "Enter full or partial ID — "
-            "e.g. SPXID064644420698"
-        ),
-        key="barcode_history_search",
-        label_visibility="collapsed",
-    )
+    with st.form(
+        "barcode_search_form",
+        clear_on_submit=False,
+    ):
+
+        search_col, search_courier_col = st.columns(
+            [2, 1]
+        )
+
+        with search_col:
+
+            barcode_query = st.text_input(
+                "Search Dispatcher ID",
+                placeholder=(
+                    "Enter full or partial ID — "
+                    "Shopee, J&T, or AnterAja"
+                ),
+                key="barcode_history_search",
+                label_visibility="collapsed",
+            )
+
+        with search_courier_col:
+
+            search_courier = st.selectbox(
+                "Courier",
+                COURIER_OPTIONS,
+                index=0,
+                key="barcode_courier_filter",
+                label_visibility="collapsed",
+            )
+
+        search_submitted = st.form_submit_button(
+            "🔎 Search",
+            use_container_width=True,
+        )
 
 
     barcode_query = (
-        barcode_query.strip()
+        barcode_query
+        .strip()
+        .upper()
     )
 
 
@@ -782,7 +939,10 @@ SEARCH DISPATCHER ID
     # WAITING
     # =====================================================
 
-    if not barcode_query:
+    if (
+        not search_submitted
+        or not barcode_query
+    ):
 
         st.markdown(
             """
@@ -797,7 +957,7 @@ Search scan history
 </div>
 
 <div class="empty-text">
-Enter a full or partial Dispatcher ID above.
+Enter a full or partial Dispatcher ID, choose a courier if needed, then press Search.
 </div>
 
 </div>
@@ -857,6 +1017,19 @@ Enter a full or partial Dispatcher ID above.
 
             if df_file.empty:
                 continue
+
+            if (
+                search_courier
+                != "All"
+            ):
+
+                df_file = df_file[
+                    df_file["Courier"]
+                    == search_courier
+                ].copy()
+
+                if df_file.empty:
+                    continue
 
 
             matching = df_file[
@@ -958,13 +1131,13 @@ No scan history was found for
 
 
             st.markdown(
-                """
+                f"""
 <div class="section-title">
 Search Results
 </div>
 
 <div class="section-subtitle">
-Matching successful scans across all dates
+Matching successful scans across all dates · Courier: {search_courier}
 </div>
 """,
                 unsafe_allow_html=True,
@@ -1042,6 +1215,7 @@ Matching successful scans across all dates
                     [
                         "No.",
                         "Dispatcher ID",
+                        "Courier",
                         "Date",
                     ]
                 ],
@@ -1058,6 +1232,12 @@ Matching successful scans across all dates
                         st.column_config.TextColumn(
                             "Dispatcher ID",
                             width="large",
+                        )
+                    ),
+                    "Courier": (
+                        st.column_config.TextColumn(
+                            "Courier",
+                            width="medium",
                         )
                     ),
                     "Date": (
@@ -1109,6 +1289,17 @@ Matching successful scans across all dates
                     barcode_query
                 )
 
+                exact_courier = (
+                    exact_matches["Courier"]
+                    .iloc[0]
+                )
+
+                safe_exact_courier = html.escape(
+                    str(
+                        exact_courier
+                    )
+                )
+
 
                 st.markdown(
                     f"""
@@ -1120,6 +1311,10 @@ EXACT DISPATCHER ID FOUND
 
 <div class="match-id">
 ✅ {safe_exact_id}
+</div>
+
+<div class="section-subtitle">
+Courier: {safe_exact_courier}
 </div>
 
 </div>

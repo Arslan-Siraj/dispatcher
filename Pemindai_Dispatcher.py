@@ -18,12 +18,191 @@ from app_helper import show_app_dev_info
 # =========================================================
 
 st.set_page_config(
-    page_title="Dispatcher Scanner",
+    page_title="Pemindai Dispatcher",
     page_icon="📦",
     layout="centered",
 )
 
+
 show_app_dev_info()
+
+# =========================================================
+# SIDEBAR BRANDING + NAVIGATION DESIGN
+# Compatible with Streamlit 1.28.1
+# =========================================================
+#
+# IMPORTANT:
+# In Streamlit 1.28.1 the icons shown in the built-in multipage
+# navigation come from the page filenames. Therefore use:
+#
+# Main app:
+#     📦_Pemindai_Dispatcher.py
+#
+# History page inside /pages:
+#     1_📋_Riwayat_Pemindaian.py
+#
+# page_icon= controls the browser favicon, not the sidebar page icon.
+
+
+st.markdown(
+    """
+<style>
+
+/* ---------------------------------------------------------
+   STREAMLIT 1.28.1 SIDEBAR
+--------------------------------------------------------- */
+
+section[data-testid="stSidebar"] > div {
+    background:
+        linear-gradient(
+            180deg,
+            rgba(15, 23, 42, 0.035) 0%,
+            rgba(15, 23, 42, 0.012) 100%
+        );
+}
+
+section[data-testid="stSidebar"] .block-container {
+    padding-top: 1.15rem;
+}
+
+
+/* ---------------------------------------------------------
+   APP BRAND
+--------------------------------------------------------- */
+
+.dispatcher-sidebar-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+
+    padding: 14px 14px;
+    margin: 0 0 16px 0;
+
+    border-radius: 16px;
+
+    background:
+        linear-gradient(
+            135deg,
+            rgba(34, 197, 94, 0.12),
+            rgba(59, 130, 246, 0.08)
+        );
+
+    border:
+        1px solid rgba(100, 116, 139, 0.18);
+}
+
+.dispatcher-brand-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    width: 44px;
+    height: 44px;
+
+    border-radius: 13px;
+
+    font-size: 1.55rem;
+    line-height: 1;
+
+    background: rgba(34, 197, 94, 0.13);
+    border: 1px solid rgba(34, 197, 94, 0.22);
+}
+
+.dispatcher-brand-copy {
+    min-width: 0;
+}
+
+.dispatcher-brand-title {
+    font-size: 0.95rem;
+    font-weight: 850;
+    letter-spacing: 0.08em;
+    line-height: 1.15;
+}
+
+.dispatcher-brand-subtitle {
+    margin-top: 4px;
+
+    font-size: 0.72rem;
+    font-weight: 600;
+
+    opacity: 0.58;
+}
+
+.dispatcher-sidebar-label {
+    margin:
+        2px 10px
+        7px 10px;
+
+    font-size: 0.67rem;
+    font-weight: 800;
+
+    letter-spacing: 0.11em;
+
+    opacity: 0.46;
+}
+
+
+/* ---------------------------------------------------------
+   BUILT-IN MULTIPAGE NAVIGATION
+--------------------------------------------------------- */
+
+/*
+Streamlit 1.28.x renders the pages navigation in the sidebar.
+These selectors only style that existing navigation; no newer
+navigation API is required.
+*/
+
+section[data-testid="stSidebar"]
+[data-testid="stSidebarNav"] {
+    padding-top: 0;
+}
+
+section[data-testid="stSidebar"]
+[data-testid="stSidebarNav"] ul {
+    padding-left: 0;
+}
+
+section[data-testid="stSidebar"]
+[data-testid="stSidebarNav"] li {
+    margin-bottom: 5px;
+}
+
+section[data-testid="stSidebar"]
+[data-testid="stSidebarNav"] a {
+    border-radius: 11px;
+
+    padding-top: 9px;
+    padding-bottom: 9px;
+
+    font-weight: 700;
+
+    transition:
+        background 0.12s ease,
+        transform 0.12s ease;
+}
+
+section[data-testid="stSidebar"]
+[data-testid="stSidebarNav"] a:hover {
+    background: rgba(34, 197, 94, 0.08);
+    transform: translateX(2px);
+}
+
+
+/* ---------------------------------------------------------
+   SIDEBAR DIVIDER
+--------------------------------------------------------- */
+
+section[data-testid="stSidebar"] hr {
+    margin-top: 1rem;
+    margin-bottom: 1rem;
+
+    opacity: 0.18;
+}
+
+</style>
+""",
+    unsafe_allow_html=True,
+)
 
 
 # =========================================================
@@ -32,12 +211,20 @@ show_app_dev_info()
 
 DATA_DIR = "data"
 
-VALID_PREFIX = "SPXID06"
-BARCODE_DIGITS = 10
-BARCODE_LENGTH = 17
+SHOPEE_PREFIX = "SPXID06"
+SHOPEE_DIGITS = 10
+SHOPEE_LENGTH = 17
 
-# Change this whenever BarcodeRegistry is structurally changed.
-REGISTRY_CACHE_VERSION = "4.0.0"
+JNT_PREFIX = "J"
+JNT_REMAINING_CHARS = 11
+JNT_LENGTH = 12
+
+ANTERAJA_PREFIX = "1"
+ANTERAJA_LENGTH = 14
+
+# Bump when registry/loading/validation behavior changes so
+# Streamlit does not reuse an older cached registry instance.
+REGISTRY_CACHE_VERSION = "5.0.0"
 
 os.makedirs(DATA_DIR, exist_ok=True)
 
@@ -358,11 +545,11 @@ div[data-testid="stTextInput"] input:focus {
 st.markdown(
     """
 <div class="dispatcher-title">
-📦 Dispatcher Scanner
+📦 Pemindai Dispatcher
 </div>
 
 <div class="dispatcher-subtitle">
-Fast parcel scanning with duplicate protection
+Pemindaian paket cepat dengan perlindungan duplikat
 </div>
 """,
     unsafe_allow_html=True,
@@ -566,36 +753,81 @@ def play_sound(status):
 
 
 # =========================================================
-# BARCODE VALIDATION
+# BARCODE VALIDATION + COURIER DETECTION
 # =========================================================
 
-BARCODE_PATTERN = re.compile(
-    rf"^{re.escape(VALID_PREFIX)}"
-    rf"\d{{{BARCODE_DIGITS}}}$"
+SHOPEE_PATTERN = re.compile(
+    rf"^{re.escape(SHOPEE_PREFIX)}"
+    rf"\d{{{SHOPEE_DIGITS}}}$"
 )
+
+JNT_PATTERN = re.compile(
+    rf"^{re.escape(JNT_PREFIX)}"
+    rf"[A-Z0-9]{{{JNT_REMAINING_CHARS}}}$"
+)
+
+ANTERAJA_PATTERN = re.compile(
+    rf"^{re.escape(ANTERAJA_PREFIX)}"
+    rf"\d{{{ANTERAJA_LENGTH - 1}}}$"
+)
+
+
+def detect_courier(barcode):
+    """
+    Return the courier name for a supported barcode.
+
+    Format yang didukung:
+
+    Shopee SPX
+        SPXID06 + exactly 10 digits
+        Total length: 17
+
+    J&T Express
+        Starts with J
+        12 characters total
+        Remaining characters may be A-Z or 0-9
+
+    AnterAja
+        14 digits total, starting with 1
+    """
+
+    if barcode is None:
+        return None
+
+    barcode = (
+        str(barcode)
+        .strip()
+        .upper()
+    )
+
+    if SHOPEE_PATTERN.fullmatch(
+        barcode
+    ):
+        return "Shopee SPX"
+
+    if JNT_PATTERN.fullmatch(
+        barcode
+    ):
+        return "J&T Express"
+
+    if ANTERAJA_PATTERN.fullmatch(
+        barcode
+    ):
+        return "AnterAja"
+
+    return None
 
 
 def is_valid_barcode(barcode):
     """
-    Required format:
-
-        SPXID06 + exactly 10 digits
-
-    Example:
-
-        SPXID064644420698
+    True only for a supported courier barcode.
     """
 
-    if barcode is None:
-        return False
-
-    barcode = str(barcode).strip()
-
-    if len(barcode) != BARCODE_LENGTH:
-        return False
-
-    return bool(
-        BARCODE_PATTERN.fullmatch(barcode)
+    return (
+        detect_courier(
+            barcode
+        )
+        is not None
     )
 
 
@@ -605,18 +837,20 @@ def is_valid_barcode(barcode):
 
 def parse_scanner_input(raw_input):
     """
-    Supports normal and rapid merged scans.
+    Parse one or more physical scanner reads.
 
-    Example:
+    The USB scanner can occasionally place rapid scans
+    together before Streamlit reruns. Because each courier
+    has a known prefix and fixed length, the input can be
+    safely split from left to right.
 
-        SPXID064644420698SPXID064644420699
+    Supported blocks:
+        Shopee SPX : 17 chars, starts SPXID06
+        J&T        : 12 chars, starts J, A-Z / 0-9
+        AnterAja   : 14 digits, starts 1
 
-    becomes:
-
-        [
-            "SPXID064644420698",
-            "SPXID064644420699"
-        ]
+    Any unknown character, incomplete block, or invalid
+    barcode causes the complete scanner event to be rejected.
     """
 
     if raw_input is None:
@@ -626,33 +860,117 @@ def parse_scanner_input(raw_input):
         r"\s+",
         "",
         str(raw_input),
-    )
+    ).upper()
 
     if not cleaned:
         return []
 
-    # Scanner data must consist entirely of complete
-    # 17-character barcode blocks.
-    if len(cleaned) % BARCODE_LENGTH != 0:
-        return []
-
     barcodes = []
+    position = 0
+    input_length = len(
+        cleaned
+    )
 
-    for start in range(
-        0,
-        len(cleaned),
-        BARCODE_LENGTH,
-    ):
+    while position < input_length:
 
-        barcode = cleaned[
-            start:
-            start + BARCODE_LENGTH
+        remaining = cleaned[
+            position:
         ]
 
-        if not is_valid_barcode(barcode):
+        barcode = None
+
+
+        # -------------------------------------------------
+        # SHOPEE SPX
+        # -------------------------------------------------
+
+        if remaining.startswith(
+            SHOPEE_PREFIX
+        ):
+
+            if len(
+                remaining
+            ) < SHOPEE_LENGTH:
+                return []
+
+            candidate = remaining[
+                :SHOPEE_LENGTH
+            ]
+
+            if not SHOPEE_PATTERN.fullmatch(
+                candidate
+            ):
+                return []
+
+            barcode = candidate
+
+
+        # -------------------------------------------------
+        # J&T EXPRESS
+        # -------------------------------------------------
+
+        elif remaining.startswith(
+            JNT_PREFIX
+        ):
+
+            if len(
+                remaining
+            ) < JNT_LENGTH:
+                return []
+
+            candidate = remaining[
+                :JNT_LENGTH
+            ]
+
+            if not JNT_PATTERN.fullmatch(
+                candidate
+            ):
+                return []
+
+            barcode = candidate
+
+
+        # -------------------------------------------------
+        # ANTERAJA
+        # -------------------------------------------------
+
+        elif remaining.startswith(
+            ANTERAJA_PREFIX
+        ):
+
+            if len(
+                remaining
+            ) < ANTERAJA_LENGTH:
+                return []
+
+            candidate = remaining[
+                :ANTERAJA_LENGTH
+            ]
+
+            if not ANTERAJA_PATTERN.fullmatch(
+                candidate
+            ):
+                return []
+
+            barcode = candidate
+
+
+        # -------------------------------------------------
+        # UNKNOWN / UNSUPPORTED
+        # -------------------------------------------------
+
+        else:
             return []
 
-        barcodes.append(barcode)
+
+        barcodes.append(
+            barcode
+        )
+
+        position += len(
+            barcode
+        )
+
 
     return barcodes
 
@@ -1120,7 +1438,7 @@ def barcode_submitted():
             r"\s+",
             "",
             str(raw_input),
-        )
+        ).upper()
 
         st.session_state.last_scan = {
             "status": "invalid",
@@ -1180,11 +1498,11 @@ st.markdown(
 <div>
 
 <div class="ready-title">
-READY TO SCAN
+SIAP MEMINDAI
 </div>
 
 <div class="ready-description">
-Scanner focus is kept active automatically · Point at a parcel barcode and press the trigger
+Fokus pemindai dijaga aktif secara otomatis · Arahkan ke barcode paket lalu tekan pemicu
 </div>
 
 </div>
@@ -1200,9 +1518,9 @@ Scanner focus is kept active automatically · Point at a parcel barcode and pres
 # =========================================================
 
 st.text_input(
-    "Scanner input",
+    "Input pemindai",
     key="barcode_input",
-    placeholder="READY TO SCAN — scanner focus active",
+    placeholder="SIAP MEMINDAI — scanner focus active",
     on_change=barcode_submitted,
     label_visibility="collapsed",
 )
@@ -1336,7 +1654,7 @@ components.html(
 
 
 # =========================================================
-# LAST SCAN STATUS
+# STATUS PEMINDAIAN TERAKHIR
 # =========================================================
 
 last_scan = (
@@ -1355,15 +1673,15 @@ if last_scan is None:
 <div class="status-card status-waiting">
 
 <div class="status-label">
-LAST SCAN STATUS
+STATUS PEMINDAIAN TERAKHIR
 </div>
 
 <div class="status-title">
-Waiting for barcode
+Menunggu barcode
 </div>
 
 <div class="status-info">
-The next scan result will appear here.
+Hasil pemindaian berikutnya akan tampil di sini.
 </div>
 
 </div>
@@ -1390,6 +1708,16 @@ else:
         raw_barcode
     )
 
+    courier = detect_courier(
+        raw_barcode
+    )
+
+    safe_courier = html.escape(
+        courier
+        if courier
+        else "Unknown"
+    )
+
 
     # =====================================================
     # SUCCESS
@@ -1409,11 +1737,11 @@ else:
 <div class="status-card status-success">
 
 <div class="status-label">
-LAST SCAN STATUS
+STATUS PEMINDAIAN TERAKHIR
 </div>
 
 <div class="status-title">
-✅ SUCCESS
+✅ BERHASIL
 </div>
 
 <div class="status-barcode">
@@ -1421,7 +1749,7 @@ LAST SCAN STATUS
 </div>
 
 <div class="status-info">
-Saved successfully · {scan_time}
+{safe_courier} · Berhasil disimpan · {scan_time}
 </div>
 
 </div>
@@ -1472,11 +1800,11 @@ Saved successfully · {scan_time}
 <div class="status-card status-duplicate">
 
 <div class="status-label">
-LAST SCAN STATUS
+STATUS PEMINDAIAN TERAKHIR
 </div>
 
 <div class="status-title">
-🔁 DUPLICATE DETECTED
+🔁 DUPLIKAT TERDETEKSI
 </div>
 
 <div class="status-barcode">
@@ -1486,23 +1814,28 @@ LAST SCAN STATUS
 <div class="duplicate-record">
 
 <div class="duplicate-record-title">
-ORIGINAL SUCCESSFUL SCAN
+PEMINDAIAN BERHASIL PERTAMA
 </div>
 
 <div class="duplicate-row">
-<span class="duplicate-key">Scan Date</span>
+<span class="duplicate-key">Tanggal Pemindaian</span>
 <span class="duplicate-value">{original_date}</span>
 </div>
 
 <div class="duplicate-row">
-<span class="duplicate-key">Scan Time</span>
+<span class="duplicate-key">Kurir</span>
+<span class="duplicate-value">{safe_courier}</span>
+</div>
+
+<div class="duplicate-row">
+<span class="duplicate-key">Waktu Pemindaian</span>
 <span class="duplicate-value">{original_time}</span>
 </div>
 
 </div>
 
 <div class="status-info">
-⚠️ This Dispatcher ID was already scanned.<br>
+⚠️ ID Dispatcher ini sudah pernah dipindai.<br>
 </div>
 
 </div>
@@ -1535,11 +1868,11 @@ ORIGINAL SUCCESSFUL SCAN
 <div class="status-card status-invalid">
 
 <div class="status-label">
-LAST SCAN STATUS
+STATUS PEMINDAIAN TERAKHIR
 </div>
 
 <div class="status-title">
-⚠️ INVALID BARCODE
+⚠️ BARCODE TIDAK VALID
 </div>
 
 <div class="status-barcode">
@@ -1547,8 +1880,11 @@ LAST SCAN STATUS
 </div>
 
 <div class="status-info">
-Expected {VALID_PREFIX} + {BARCODE_DIGITS} digits<br>
-<strong>Not stored</strong>
+Format yang didukung:<br>
+Shopee SPX: SPXID06 + 10 digit<br>
+J&amp;T: 12 karakter diawali J (huruf/angka)<br>
+AnterAja: 14 digit diawali angka 1<br>
+<strong>Tidak disimpan</strong>
 </div>
 
 </div>
@@ -1567,7 +1903,7 @@ Expected {VALID_PREFIX} + {BARCODE_DIGITS} digits<br>
             str(
                 last_scan.get(
                     "message",
-                    "Unable to save barcode.",
+                    "Tidak dapat menyimpan barcode.",
                 )
             )
         )
@@ -1577,11 +1913,11 @@ Expected {VALID_PREFIX} + {BARCODE_DIGITS} digits<br>
 <div class="status-card status-error">
 
 <div class="status-label">
-LAST SCAN STATUS
+STATUS PEMINDAIAN TERAKHIR
 </div>
 
 <div class="status-title">
-❌ SAVE ERROR
+❌ GAGAL MENYIMPAN
 </div>
 
 <div class="status-barcode">
@@ -1590,7 +1926,7 @@ LAST SCAN STATUS
 
 <div class="status-info">
 {safe_message}<br>
-<strong>Barcode was not stored</strong>
+<strong>Barcode tidak disimpan</strong>
 </div>
 
 </div>
@@ -1613,7 +1949,7 @@ if rapid_count > 1:
     st.markdown(
         f"""
 <div class="rapid-pill">
-⚡ {rapid_count} rapid scans processed individually
+⚡ {rapid_count} pemindaian cepat diproses satu per satu
 </div>
 """,
         unsafe_allow_html=True,
@@ -1646,7 +1982,7 @@ metric_col1, metric_col2 = st.columns(2)
 with metric_col1:
 
     st.metric(
-        "Today's scans",
+        "Pemindaian hari ini",
         today_count,
     )
 
@@ -1654,7 +1990,7 @@ with metric_col1:
 with metric_col2:
 
     st.metric(
-        "Total successful scans",
+        "Total pemindaian berhasil",
         total_successful,
     )
 
@@ -1666,7 +2002,7 @@ with metric_col2:
 st.markdown(
     f"""
 <div class="section-title">
-Today's Scans — {today_str}
+Pemindaian Hari Ini — {today_str}
 </div>
 """,
     unsafe_allow_html=True,
@@ -1685,6 +2021,17 @@ if records:
             "Barcode_ID",
             "Timestamp",
         ],
+    )
+
+
+    df_today["Kurir"] = (
+        df_today["Barcode_ID"]
+        .map(
+            detect_courier
+        )
+        .fillna(
+            "Unknown"
+        )
     )
 
 
@@ -1750,6 +2097,7 @@ if records:
     download_df = df_today[
         [
             "Barcode_ID",
+            "Kurir",
             "Timestamp",
         ]
     ].copy()
@@ -1768,6 +2116,7 @@ if records:
     download_df = download_df.rename(
         columns={
             "Barcode_ID": "dispatcher_id",
+            "Kurir": "courier",
             "Timestamp": "date",
         }
     )
@@ -1837,6 +2186,11 @@ if records:
 
         worksheet.set_column(
             "B:B",
+            18,
+        )
+
+        worksheet.set_column(
+            "C:C",
             22,
         )
 
@@ -1874,7 +2228,7 @@ if records:
 
 
     st.download_button(
-        label="⬇️ Download Today's Scan File",
+        label="⬇️ Unduh File Pemindaian Hari Ini",
         data=excel_buffer.getvalue(),
         file_name=(
             f"dispatcher_scans_"
@@ -1892,5 +2246,5 @@ if records:
 else:
 
     st.info(
-        f"No parcels scanned on {today_str}."
+        f"Belum ada paket yang dipindai pada {today_str}."
     )
