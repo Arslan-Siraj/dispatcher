@@ -237,6 +237,55 @@ div[data-testid="stTextInput"] input:focus {
 
 
 /* ---------------------------------------------------------
+   DUPLICATE ORIGINAL RECORD
+--------------------------------------------------------- */
+
+.duplicate-record {
+    margin-top: 16px;
+    padding: 14px 16px;
+
+    background: rgba(239, 68, 68, 0.06);
+    border: 1px solid rgba(239, 68, 68, 0.20);
+
+    border-radius: 13px;
+}
+
+.duplicate-record-title {
+    font-size: 0.72rem;
+    font-weight: 800;
+
+    letter-spacing: 0.08em;
+
+    opacity: 0.62;
+
+    margin-bottom: 9px;
+}
+
+.duplicate-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+
+    gap: 20px;
+
+    padding: 5px 0;
+
+    font-size: 0.90rem;
+}
+
+.duplicate-key {
+    opacity: 0.64;
+}
+
+.duplicate-value {
+    font-weight: 800;
+    text-align: right;
+
+    word-break: break-all;
+}
+
+
+/* ---------------------------------------------------------
    RAPID SCAN
 --------------------------------------------------------- */
 
@@ -297,7 +346,7 @@ Fast parcel scanning with duplicate protection
 
 
 # =========================================================
-# SOUND
+# LOUD NON-BLOCKING SCANNER SOUND FEEDBACK
 # =========================================================
 
 try:
@@ -309,9 +358,121 @@ except ImportError:
     WINDOWS_SOUND_AVAILABLE = False
 
 
+_sound_lock = threading.Lock()
+
+
+def _run_sound_pattern(status):
+    """
+    Play an attention pattern in a background thread.
+
+    The barcode callback is never blocked by the sound.
+    Windows controls the actual speaker/output volume.
+    """
+
+    if not WINDOWS_SOUND_AVAILABLE:
+        return
+
+    with _sound_lock:
+
+        try:
+
+            # -------------------------------------------------
+            # SUCCESS
+            # Short confirmation only.
+            # -------------------------------------------------
+
+            if status == "success":
+
+                winsound.Beep(
+                    1500,
+                    90,
+                )
+
+                return
+
+
+            # -------------------------------------------------
+            # DUPLICATE
+            # Strong repeated high/low alarm.
+            # -------------------------------------------------
+
+            if status == "duplicate":
+
+                winsound.Beep(
+                    1900,
+                    260,
+                )
+
+                winsound.Beep(
+                    950,
+                    320,
+                )
+
+                winsound.Beep(
+                    1900,
+                    360,
+                )
+
+                return
+
+
+            # -------------------------------------------------
+            # INVALID
+            # Long, very obvious four-tone warning.
+            # -------------------------------------------------
+
+            if status == "invalid":
+
+                winsound.Beep(
+                    850,
+                    360,
+                )
+
+                winsound.Beep(
+                    600,
+                    420,
+                )
+
+                winsound.Beep(
+                    850,
+                    360,
+                )
+
+                winsound.Beep(
+                    600,
+                    600,
+                )
+
+                return
+
+
+            # -------------------------------------------------
+            # SAVE / SYSTEM ERROR
+            # Distinct low-frequency alarm.
+            # -------------------------------------------------
+
+            winsound.Beep(
+                500,
+                450,
+            )
+
+            winsound.Beep(
+                380,
+                500,
+            )
+
+            winsound.Beep(
+                500,
+                650,
+            )
+
+        except Exception:
+            pass
+
+
 def play_sound(status):
     """
-    Play asynchronous feedback without blocking scanning.
+    Start sound feedback without delaying the next scan.
     """
 
     if not WINDOWS_SOUND_AVAILABLE:
@@ -319,29 +480,13 @@ def play_sound(status):
 
     try:
 
-        if status == "success":
+        sound_thread = threading.Thread(
+            target=_run_sound_pattern,
+            args=(status,),
+            daemon=True,
+        )
 
-            winsound.PlaySound(
-                "SystemAsterisk",
-                winsound.SND_ALIAS
-                | winsound.SND_ASYNC,
-            )
-
-        elif status == "duplicate":
-
-            winsound.PlaySound(
-                "SystemHand",
-                winsound.SND_ALIAS
-                | winsound.SND_ASYNC,
-            )
-
-        else:
-
-            winsound.PlaySound(
-                "SystemExclamation",
-                winsound.SND_ALIAS
-                | winsound.SND_ASYNC,
-            )
+        sound_thread.start()
 
     except Exception:
         pass
@@ -1091,12 +1236,36 @@ Saved successfully · {scan_time}
 
     elif status == "duplicate":
 
-        previous_time = format_timestamp(
-            last_scan.get(
-                "timestamp",
-                "",
-            )
+        original_timestamp = last_scan.get(
+            "timestamp",
+            "",
         )
+
+        try:
+
+            original_datetime = pd.to_datetime(
+                original_timestamp
+            )
+
+            original_date = (
+                original_datetime.strftime(
+                    "%Y-%m-%d"
+                )
+            )
+
+            original_time = (
+                original_datetime.strftime(
+                    "%H:%M:%S"
+                )
+            )
+
+        except Exception:
+
+            original_date = "-"
+            original_time = html.escape(
+                str(original_timestamp)
+            )
+
 
         st.markdown(
             f"""
@@ -1107,16 +1276,33 @@ LAST SCAN STATUS
 </div>
 
 <div class="status-title">
-🔁 DUPLICATE
+🔁 DUPLICATE DETECTED
 </div>
 
 <div class="status-barcode">
 {safe_barcode}
 </div>
 
+<div class="duplicate-record">
+
+<div class="duplicate-record-title">
+ORIGINAL SUCCESSFUL SCAN
+</div>
+
+<div class="duplicate-row">
+<span class="duplicate-key">Scan Date</span>
+<span class="duplicate-value">{original_date}</span>
+</div>
+
+<div class="duplicate-row">
+<span class="duplicate-key">Scan Time</span>
+<span class="duplicate-value">{original_time}</span>
+</div>
+
+</div>
+
 <div class="status-info">
-Previously scanned: {previous_time}<br>
-<strong>Not stored again</strong>
+⚠️ This Dispatcher ID was already scanned.<br>
 </div>
 
 </div>
