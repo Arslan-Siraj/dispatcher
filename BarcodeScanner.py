@@ -8,6 +8,7 @@ from glob import glob
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 from app_helper import show_app_dev_info
 
@@ -122,38 +123,61 @@ st.markdown(
 
 
 /* ---------------------------------------------------------
-   SCANNER INPUT
+   LARGE STICKY SCANNER INPUT
 --------------------------------------------------------- */
 
 div[data-testid="stTextInput"] {
-    margin-bottom: 0.7rem;
+    margin-top: 8px;
+    margin-bottom: 16px;
 }
 
 div[data-testid="stTextInput"] input {
-    font-size: 1.3rem !important;
-    font-weight: 700 !important;
+    font-size: 1.55rem !important;
+    font-weight: 850 !important;
 
     text-align: center !important;
-    letter-spacing: 0.035em !important;
+    letter-spacing: 0.045em !important;
 
-    min-height: 60px !important;
+    height: 104px !important;
+    min-height: 104px !important;
 
-    border-radius: 16px !important;
+    border-radius: 22px !important;
 
     border:
-        2px solid rgba(100, 116, 139, 0.25) !important;
+        3px solid rgba(34, 197, 94, 0.42) !important;
+
+    background:
+        rgba(34, 197, 94, 0.055) !important;
 
     transition:
         border 0.12s ease,
-        box-shadow 0.12s ease;
+        box-shadow 0.12s ease,
+        background 0.12s ease;
+}
+
+div[data-testid="stTextInput"] input::placeholder {
+    font-size: 1.12rem !important;
+    font-weight: 800 !important;
+    letter-spacing: 0.025em !important;
+    opacity: 0.68 !important;
+}
+
+div[data-testid="stTextInput"] input:hover {
+    border:
+        3px solid rgba(34, 197, 94, 0.70) !important;
 }
 
 div[data-testid="stTextInput"] input:focus {
     border:
-        2px solid #22c55e !important;
+        3px solid #22c55e !important;
+
+    background:
+        rgba(34, 197, 94, 0.09) !important;
 
     box-shadow:
-        0 0 0 4px rgba(34, 197, 94, 0.10) !important;
+        0 0 0 6px rgba(34, 197, 94, 0.12) !important;
+
+    outline: none !important;
 }
 
 
@@ -1184,11 +1208,11 @@ st.markdown(
 <div>
 
 <div class="ready-title">
-Scanner ready
+READY TO SCAN
 </div>
 
 <div class="ready-description">
-Point the scanner at a parcel barcode and press the trigger
+Scanner focus is kept active automatically · Point at a parcel barcode and press the trigger
 </div>
 
 </div>
@@ -1206,9 +1230,136 @@ Point the scanner at a parcel barcode and press the trigger
 st.text_input(
     "Scanner input",
     key="barcode_input",
-    placeholder="Ready — scan barcode now",
+    placeholder="READY TO SCAN — scanner focus active",
     on_change=barcode_submitted,
     label_visibility="collapsed",
+)
+
+
+# =========================================================
+# STICKY SCANNER FOCUS
+# =========================================================
+
+components.html(
+    """
+<script>
+(function () {
+
+    const parentWindow = window.parent;
+    const parentDocument = parentWindow.document;
+
+    function getScannerInput() {
+        const inputs = parentDocument.querySelectorAll(
+            'div[data-testid="stTextInput"] input'
+        );
+
+        if (!inputs || inputs.length === 0) {
+            return null;
+        }
+
+        // BarcodeScanner.py has one scanner text input.
+        return inputs[0];
+    }
+
+
+    function focusScanner() {
+        try {
+            const scannerInput = getScannerInput();
+
+            if (!scannerInput) {
+                return;
+            }
+
+            scannerInput.setAttribute(
+                "autocomplete",
+                "off"
+            );
+
+            scannerInput.setAttribute(
+                "autocapitalize",
+                "off"
+            );
+
+            scannerInput.setAttribute(
+                "spellcheck",
+                "false"
+            );
+
+            scannerInput.focus({
+                preventScroll: true
+            });
+
+        } catch (error) {
+            console.log(
+                "Dispatcher scanner focus unavailable."
+            );
+        }
+    }
+
+
+    // Remove handlers installed by the previous Streamlit
+    // rerun before installing the new ones.
+    if (parentWindow.__dispatcherScannerClickHandler) {
+        parentDocument.removeEventListener(
+            "click",
+            parentWindow.__dispatcherScannerClickHandler,
+            true
+        );
+    }
+
+    if (parentWindow.__dispatcherScannerWindowFocusHandler) {
+        parentWindow.removeEventListener(
+            "focus",
+            parentWindow.__dispatcherScannerWindowFocusHandler
+        );
+    }
+
+
+    parentWindow.__dispatcherScannerClickHandler = function () {
+        // Allow the clicked control (download button, sidebar,
+        // etc.) to perform its action first, then return focus
+        // to the barcode scanner.
+        setTimeout(
+            focusScanner,
+            180
+        );
+    };
+
+
+    parentWindow.__dispatcherScannerWindowFocusHandler = function () {
+        // When the operator returns to this browser window,
+        // make the scanner ready again.
+        setTimeout(
+            focusScanner,
+            120
+        );
+    };
+
+
+    parentDocument.addEventListener(
+        "click",
+        parentWindow.__dispatcherScannerClickHandler,
+        true
+    );
+
+    parentWindow.addEventListener(
+        "focus",
+        parentWindow.__dispatcherScannerWindowFocusHandler
+    );
+
+
+    // Streamlit renders in stages, especially after on_change.
+    // Multiple attempts make focus recovery reliable without
+    // blocking the page.
+    setTimeout(focusScanner, 50);
+    setTimeout(focusScanner, 180);
+    setTimeout(focusScanner, 450);
+    setTimeout(focusScanner, 900);
+
+})();
+</script>
+""",
+    height=0,
 )
 
 
