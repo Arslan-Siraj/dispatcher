@@ -63,7 +63,7 @@ jobs:
     - name: Create .bat file
       run: |
         echo '@echo off' > ${{ env.APP_NAME }}.bat
-        echo 'start /min .\python-${{ env.PYTHON_VERSION }}\python -m streamlit run BarcodeScanner.py local' >> ${{ env.APP_NAME }}.bat
+        echo 'start /min .\python-${{ env.PYTHON_VERSION }}\python -m streamlit run Pemindai_Dispatcher.py local' >> ${{ env.APP_NAME }}.bat
 
     - name: Create All-in-one executable folder
       run: |
