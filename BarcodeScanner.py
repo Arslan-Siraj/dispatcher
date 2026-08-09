@@ -346,7 +346,7 @@ Fast parcel scanning with duplicate protection
 
 
 # =========================================================
-# LOUD NON-BLOCKING SCANNER SOUND FEEDBACK
+# LOUD NON-BLOCKING SOUND + INDONESIAN VOICE FEEDBACK
 # =========================================================
 
 try:
@@ -358,19 +358,69 @@ except ImportError:
     WINDOWS_SOUND_AVAILABLE = False
 
 
+try:
+    import pyttsx3
+
+    SPEECH_AVAILABLE = True
+
+except ImportError:
+    SPEECH_AVAILABLE = False
+
+
 _sound_lock = threading.Lock()
+
+
+def _speak_warning(message):
+    """
+    Speak an Indonesian warning message.
+
+    This function runs inside the same background sound
+    thread, so barcode processing is not blocked.
+    """
+
+    if not SPEECH_AVAILABLE:
+        return
+
+    try:
+
+        engine = pyttsx3.init()
+
+        # Slightly slower speech improves clarity in a
+        # warehouse / dispatch environment.
+        engine.setProperty(
+            "rate",
+            160,
+        )
+
+        # Maximum pyttsx3 output volume.
+        engine.setProperty(
+            "volume",
+            1.0,
+        )
+
+        engine.say(
+            message
+        )
+
+        engine.runAndWait()
+
+        engine.stop()
+
+    except Exception:
+        # Audio feedback must never interrupt scanning.
+        pass
 
 
 def _run_sound_pattern(status):
     """
-    Play an attention pattern in a background thread.
+    Play warning beeps, then Indonesian voice feedback.
 
-    The barcode callback is never blocked by the sound.
-    Windows controls the actual speaker/output volume.
+    The whole feedback sequence runs in a background thread,
+    so the scanner callback can finish immediately.
+
+    Actual loudness is controlled by the Windows output
+    volume on the scanner workstation.
     """
-
-    if not WINDOWS_SOUND_AVAILABLE:
-        return
 
     with _sound_lock:
 
@@ -378,39 +428,49 @@ def _run_sound_pattern(status):
 
             # -------------------------------------------------
             # SUCCESS
-            # Short confirmation only.
+            # Short confirmation beep only.
             # -------------------------------------------------
 
             if status == "success":
 
-                winsound.Beep(
-                    1500,
-                    90,
-                )
+                if WINDOWS_SOUND_AVAILABLE:
+
+                    winsound.Beep(
+                        1500,
+                        90,
+                    )
 
                 return
 
 
             # -------------------------------------------------
             # DUPLICATE
-            # Strong repeated high/low alarm.
+            # Strong 3-tone alarm, then Indonesian warning.
             # -------------------------------------------------
 
             if status == "duplicate":
 
-                winsound.Beep(
-                    1900,
-                    260,
-                )
+                if WINDOWS_SOUND_AVAILABLE:
 
-                winsound.Beep(
-                    950,
-                    320,
-                )
+                    winsound.Beep(
+                        1900,
+                        260,
+                    )
 
-                winsound.Beep(
-                    1900,
-                    360,
+                    winsound.Beep(
+                        950,
+                        320,
+                    )
+
+                    winsound.Beep(
+                        1900,
+                        360,
+                    )
+
+
+                _speak_warning(
+                    "Barcode duplikat. "
+                    "Sudah pernah dipindai."
                 )
 
                 return
@@ -418,29 +478,37 @@ def _run_sound_pattern(status):
 
             # -------------------------------------------------
             # INVALID
-            # Long, very obvious four-tone warning.
+            # Strong 4-tone alarm, then Indonesian warning.
             # -------------------------------------------------
 
             if status == "invalid":
 
-                winsound.Beep(
-                    850,
-                    360,
-                )
+                if WINDOWS_SOUND_AVAILABLE:
 
-                winsound.Beep(
-                    600,
-                    420,
-                )
+                    winsound.Beep(
+                        850,
+                        360,
+                    )
 
-                winsound.Beep(
-                    850,
-                    360,
-                )
+                    winsound.Beep(
+                        600,
+                        420,
+                    )
 
-                winsound.Beep(
-                    600,
-                    600,
+                    winsound.Beep(
+                        850,
+                        360,
+                    )
+
+                    winsound.Beep(
+                        600,
+                        600,
+                    )
+
+
+                _speak_warning(
+                    "Barcode tidak valid. "
+                    "Silakan pindai ulang."
                 )
 
                 return
@@ -448,35 +516,44 @@ def _run_sound_pattern(status):
 
             # -------------------------------------------------
             # SAVE / SYSTEM ERROR
-            # Distinct low-frequency alarm.
+            # Distinct low alarm, then Indonesian warning.
             # -------------------------------------------------
 
-            winsound.Beep(
-                500,
-                450,
-            )
+            if WINDOWS_SOUND_AVAILABLE:
 
-            winsound.Beep(
-                380,
-                500,
-            )
+                winsound.Beep(
+                    500,
+                    450,
+                )
 
-            winsound.Beep(
-                500,
-                650,
+                winsound.Beep(
+                    380,
+                    500,
+                )
+
+                winsound.Beep(
+                    500,
+                    650,
+                )
+
+
+            _speak_warning(
+                "Terjadi kesalahan. "
+                "Barcode tidak tersimpan."
             )
 
         except Exception:
+            # Feedback failure must never stop barcode scanning.
             pass
 
 
 def play_sound(status):
     """
-    Start sound feedback without delaying the next scan.
-    """
+    Start sound and voice feedback in the background.
 
-    if not WINDOWS_SOUND_AVAILABLE:
-        return
+    The scanner remains ready for the next barcode while
+    warning audio is playing.
+    """
 
     try:
 
