@@ -1,236 +1,1510 @@
-import streamlit as st
-import cv2
-import numpy as np
-from pyzbar import pyzbar
-from streamlit_webrtc import webrtc_streamer
 import csv
 import datetime
-import winsound
-import pyttsx3
+import html
 import os
+import re
+import threading
 from glob import glob
+
 import pandas as pd
-from streamlit_webrtc import VideoProcessorBase
-import av
-import geocoder
-from PIL import Image
-import piexif
-import base64
+import streamlit as st
+
 from app_helper import show_app_dev_info
 
-# Streamlit setup (must be first Streamlit command)
-st.set_page_config(page_title="Barcode Scanner", layout="centered")
+
+# =========================================================
+# PAGE CONFIGURATION
+# =========================================================
+
+st.set_page_config(
+    page_title="Dispatcher Scanner",
+    page_icon="📦",
+    layout="centered",
+)
 
 show_app_dev_info()
 
-st.title("📦 Packed Product Barcode Scanner")
+
+# =========================================================
+# APPLICATION CONFIGURATION
+# =========================================================
 
 DATA_DIR = "data"
-IMAGE_DIR = "images"
+
+VALID_PREFIX = "SPXID06"
+BARCODE_DIGITS = 10
+BARCODE_LENGTH = 17
+
+# Change this whenever BarcodeRegistry is structurally changed.
+REGISTRY_CACHE_VERSION = "4.0.0"
 
 os.makedirs(DATA_DIR, exist_ok=True)
-os.makedirs(IMAGE_DIR, exist_ok=True)
 
-# Get GPS location
-def get_gps_location():
-    try:
-        g = geocoder.ip('me')
-        if g.ok:
-            return g.latlng
-        else:
-            return [24.8607, 67.0011]  # fallback
-    except:
-        return [24.8607, 67.0011]  # fallback
 
-WAREHOUSE_LAT, WAREHOUSE_LON = get_gps_location()
+# =========================================================
+# PAGE STYLE
+# =========================================================
 
-# Create GPS EXIF data
-def create_gps_exif(lat, lon):
-    def to_dms(coord):
-        d = int(coord)
-        m = int((coord - d) * 60)
-        s = (coord - d - m/60) * 3600
-        return [(d, 1), (m, 1), (int(s * 100), 100)]
-    
-    gps_ifd = {
-        piexif.GPSIFD.GPSLatitudeRef: 'N' if lat >= 0 else 'S',
-        piexif.GPSIFD.GPSLatitude: to_dms(abs(lat)),
-        piexif.GPSIFD.GPSLongitudeRef: 'E' if lon >= 0 else 'W',
-        piexif.GPSIFD.GPSLongitude: to_dms(abs(lon)),
-    }
-    exif_dict = {"GPS": gps_ifd}
-    return piexif.dump(exif_dict)
+st.markdown(
+    """
+<style>
 
-# Format GPS display
-def format_gps_display(lat, lon):
-    def to_dms_str(coord, is_lat):
-        abs_coord = abs(coord)
-        d = int(abs_coord)
-        m = int((abs_coord - d) * 60)
-        s = (abs_coord - d - m/60) * 3600
-        dir = 'N' if coord >= 0 and is_lat else 'S' if is_lat else 'E' if coord >= 0 else 'W'
-        return f"{coord:.6f} / {dir} {d}° {m}' {s:.3f}''"
-    
-    lat_str = f"Latitude: {to_dms_str(lat, True)}"
-    lon_str = f"Longitude: {to_dms_str(lon, False)}"
-    return lat_str, lon_str
+.block-container {
+    max-width: 900px;
+    padding-top: 1.4rem;
+    padding-bottom: 3rem;
+}
 
-# Track current date (auto-rerun on day change)
-today_str = datetime.date.today().isoformat()
+[data-testid="stHeader"] {
+    background: transparent;
+}
 
-if "current_day" not in st.session_state:
-    st.session_state["current_day"] = today_str
 
-if st.session_state["current_day"] != today_str:
-    st.session_state["current_day"] = today_str
-    st.rerun()
+/* ---------------------------------------------------------
+   HEADER
+--------------------------------------------------------- */
 
-# Load ALL previous barcodes (global duplicate check)
-if "scanned_codes" not in st.session_state:
-    scanned_codes = {}
-    for csv_file in glob(os.path.join(DATA_DIR, "*.csv")):
-        with open(csv_file, "r") as f:
-            reader = csv.reader(f)
-            for row in reader:
-                if row:
-                    scanned_codes[row[0]] = row[1]
-    st.session_state["scanned_codes"] = scanned_codes
-else:
-    scanned_codes = st.session_state["scanned_codes"]
+.dispatcher-title {
+    font-size: 2.15rem;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    margin-bottom: 0.15rem;
+}
 
-# Barcode scanner
-VALID_PREFIX = "SPXID06"
+.dispatcher-subtitle {
+    font-size: 0.95rem;
+    opacity: 0.65;
+    margin-bottom: 1.5rem;
+}
 
-class BarcodeScanner(VideoProcessorBase):
-    def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
-        img = frame.to_ndarray(format="bgr24")
-        barcodes = pyzbar.decode(img)
 
-        today = datetime.date.today().isoformat()
-        today_csv = os.path.join(DATA_DIR, f"{today}.csv")
-        today_image_dir = os.path.join(IMAGE_DIR, today)
-        os.makedirs(today_image_dir, exist_ok=True)
+/* ---------------------------------------------------------
+   SCANNER READY
+--------------------------------------------------------- */
 
-        for barcode in barcodes:
-            x, y, w, h = barcode.rect
-            barcode_data = barcode.data.decode("utf-8")
-            barcode_type = barcode.type
+.scanner-ready {
+    display: flex;
+    align-items: center;
+    gap: 13px;
 
-            # Timestamp
-            now = datetime.datetime.now()
-            timestamp = now.isoformat()
-            display_time = now.strftime("%Y-%m-%d %H:%M:%S")
+    border: 1px solid rgba(34, 197, 94, 0.30);
+    background: rgba(34, 197, 94, 0.07);
 
-            # Metadata text
-            prefix_text = f"Prefix: {VALID_PREFIX}"
-            time_text = f"Time: {display_time}"
-            gps_text = f"GPS: {WAREHOUSE_LAT}, {WAREHOUSE_LON}"
+    border-radius: 18px;
 
-            # ❌ INVALID PREFIX
-            if not barcode_data.startswith(VALID_PREFIX):
-                winsound.Beep(800, 800)
-                engine = pyttsx3.init()
-                engine.say("Please scan it again")
-                engine.runAndWait()
+    padding: 16px 19px;
+    margin-bottom: 10px;
+}
 
-                cv2.rectangle(img, (x, y), (x + w, y + h), (0, 0, 255), 2)
-                cv2.putText(img, "INVALID CODE", (x, y - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-                continue
+.ready-dot {
+    width: 12px;
+    height: 12px;
+    min-width: 12px;
 
-            # 🔁 DUPLICATE
-            if barcode_data in scanned_codes:
-                winsound.Beep(1000, 1500)
-                engine = pyttsx3.init()
-                engine.say("Duplicate code found")
-                engine.runAndWait()
-            else:
-                scanned_codes[barcode_data] = timestamp
-                st.session_state["scanned_codes"] = scanned_codes
+    border-radius: 50%;
 
-                with open(today_csv, "a", newline="") as csvfile:
-                    csv.writer(csvfile).writerow([barcode_data, timestamp])
+    background: #22c55e;
 
-                # Overlay metadata BEFORE saving image
-                GREEN = (0, 255, 0)
+    box-shadow:
+        0 0 0 5px rgba(34, 197, 94, 0.12);
+}
 
-                # Fixed position: top-left corner to avoid cutting off
-                base_x = 10
-                base_y = 30
+.ready-title {
+    font-size: 1rem;
+    font-weight: 750;
+}
 
-                cv2.putText(
-                    img, f"ID: {barcode_data}",
-                    (base_x, base_y),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.8, GREEN, 3
-                )
+.ready-description {
+    font-size: 0.83rem;
+    opacity: 0.65;
+    margin-top: 2px;
+}
 
-                cv2.putText(
-                    img, f"Time: {display_time}",
-                    (base_x, base_y + 30),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.8, GREEN, 3
-                )
 
-                lat_str, lon_str = format_gps_display(WAREHOUSE_LAT, WAREHOUSE_LON)
-                cv2.putText(
-                    img, lat_str,
-                    (base_x, base_y + 60),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7, GREEN, 3
-                )
-                cv2.putText(
-                    img, lon_str,
-                    (base_x, base_y + 90),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7, GREEN, 3
-                )
+/* ---------------------------------------------------------
+   SCANNER INPUT
+--------------------------------------------------------- */
 
-                img_name = f"{barcode_data}_{now.strftime('%H%M%S')}.png"
-                # Save with GPS EXIF
-                pil_img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-                exif_bytes = create_gps_exif(WAREHOUSE_LAT, WAREHOUSE_LON)
-                pil_img.save(os.path.join(today_image_dir, img_name), exif=exif_bytes)
+div[data-testid="stTextInput"] {
+    margin-bottom: 0.7rem;
+}
 
-                winsound.Beep(1200, 300)
-                engine = pyttsx3.init()
-                engine.say("Added to the list")
-                engine.runAndWait()
+div[data-testid="stTextInput"] input {
+    font-size: 1.3rem !important;
+    font-weight: 700 !important;
 
-            # Draw bounding box + barcode text
-            cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
-            cv2.putText(img, f"{barcode_data} ({barcode_type})",
-                        (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
-                        (0, 255, 0), 2)
+    text-align: center !important;
+    letter-spacing: 0.035em !important;
 
-        return av.VideoFrame.from_ndarray(img, format="bgr24")
+    min-height: 60px !important;
 
-# Streamlit interface
-webrtc_streamer(
-    key="barcode-scanner",
-    video_processor_factory=BarcodeScanner,
-    rtc_configuration={
-        "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
-    },
-    media_stream_constraints={"video": True, "audio": False},
+    border-radius: 16px !important;
+
+    border:
+        2px solid rgba(100, 116, 139, 0.25) !important;
+
+    transition:
+        border 0.12s ease,
+        box-shadow 0.12s ease;
+}
+
+div[data-testid="stTextInput"] input:focus {
+    border:
+        2px solid #22c55e !important;
+
+    box-shadow:
+        0 0 0 4px rgba(34, 197, 94, 0.10) !important;
+}
+
+
+/* ---------------------------------------------------------
+   STATUS CARDS
+--------------------------------------------------------- */
+
+.status-card {
+    width: 100%;
+    box-sizing: border-box;
+
+    border-radius: 20px;
+
+    padding: 22px 24px;
+
+    margin-top: 8px;
+    margin-bottom: 20px;
+
+    border: 1px solid transparent;
+}
+
+.status-success {
+    background: rgba(34, 197, 94, 0.10);
+    border-color: rgba(34, 197, 94, 0.32);
+}
+
+.status-duplicate {
+    background: rgba(239, 68, 68, 0.10);
+    border-color: rgba(239, 68, 68, 0.32);
+}
+
+.status-invalid {
+    background: rgba(245, 158, 11, 0.11);
+    border-color: rgba(245, 158, 11, 0.35);
+}
+
+.status-error {
+    background: rgba(239, 68, 68, 0.10);
+    border-color: rgba(239, 68, 68, 0.32);
+}
+
+.status-waiting {
+    background: rgba(100, 116, 139, 0.07);
+    border-color: rgba(100, 116, 139, 0.20);
+}
+
+.status-label {
+    font-size: 0.75rem;
+    font-weight: 750;
+
+    letter-spacing: 0.09em;
+
+    opacity: 0.60;
+
+    margin-bottom: 8px;
+}
+
+.status-title {
+    font-size: 1.4rem;
+    font-weight: 850;
+
+    margin-bottom: 7px;
+}
+
+.status-barcode {
+    font-size: 1.65rem;
+    font-weight: 850;
+
+    letter-spacing: 0.025em;
+
+    word-break: break-all;
+}
+
+.status-info {
+    margin-top: 8px;
+
+    font-size: 0.88rem;
+
+    opacity: 0.70;
+}
+
+
+/* ---------------------------------------------------------
+   RAPID SCAN
+--------------------------------------------------------- */
+
+.rapid-pill {
+    display: inline-block;
+
+    padding: 5px 11px;
+
+    border-radius: 999px;
+
+    font-size: 0.78rem;
+    font-weight: 650;
+
+    background: rgba(59, 130, 246, 0.10);
+
+    border:
+        1px solid rgba(59, 130, 246, 0.22);
+
+    margin-top: -7px;
+    margin-bottom: 15px;
+}
+
+
+/* ---------------------------------------------------------
+   SECTION
+--------------------------------------------------------- */
+
+.section-title {
+    font-size: 1.15rem;
+    font-weight: 800;
+
+    margin-top: 1rem;
+    margin-bottom: 0.65rem;
+}
+
+</style>
+""",
+    unsafe_allow_html=True,
 )
 
-# Display scanned codes (today only)
-st.subheader(f"✅ Scanned Barcodes ({today_str})")
 
-today_csv = os.path.join(DATA_DIR, f"{today_str}.csv")
+# =========================================================
+# PAGE HEADER
+# =========================================================
 
-if os.path.exists(today_csv):
-    df_today = pd.read_csv(today_csv, names=["Barcode_ID", "Timestamp"])
+st.markdown(
+    """
+<div class="dispatcher-title">
+📦 Dispatcher Scanner
+</div>
 
-    if not df_today.empty:
-        df_today["Timestamp"] = pd.to_datetime(df_today["Timestamp"], errors="coerce")
-        df_today = df_today.dropna(subset=["Timestamp"])
-        df_today = df_today.sort_values("Timestamp", ascending=False)
-        df_today.insert(0, "No.", range(1, len(df_today) + 1))
+<div class="dispatcher-subtitle">
+Fast parcel scanning with duplicate protection
+</div>
+""",
+    unsafe_allow_html=True,
+)
 
-        st.dataframe(df_today, use_container_width=True, hide_index=True)
-    else:
-        st.info("No barcode scanned today.")
+
+# =========================================================
+# SOUND
+# =========================================================
+
+try:
+    import winsound
+
+    WINDOWS_SOUND_AVAILABLE = True
+
+except ImportError:
+    WINDOWS_SOUND_AVAILABLE = False
+
+
+def play_sound(status):
+    """
+    Play asynchronous feedback without blocking scanning.
+    """
+
+    if not WINDOWS_SOUND_AVAILABLE:
+        return
+
+    try:
+
+        if status == "success":
+
+            winsound.PlaySound(
+                "SystemAsterisk",
+                winsound.SND_ALIAS
+                | winsound.SND_ASYNC,
+            )
+
+        elif status == "duplicate":
+
+            winsound.PlaySound(
+                "SystemHand",
+                winsound.SND_ALIAS
+                | winsound.SND_ASYNC,
+            )
+
+        else:
+
+            winsound.PlaySound(
+                "SystemExclamation",
+                winsound.SND_ALIAS
+                | winsound.SND_ASYNC,
+            )
+
+    except Exception:
+        pass
+
+
+# =========================================================
+# BARCODE VALIDATION
+# =========================================================
+
+BARCODE_PATTERN = re.compile(
+    rf"^{re.escape(VALID_PREFIX)}"
+    rf"\d{{{BARCODE_DIGITS}}}$"
+)
+
+
+def is_valid_barcode(barcode):
+    """
+    Required format:
+
+        SPXID06 + exactly 10 digits
+
+    Example:
+
+        SPXID064644420698
+    """
+
+    if barcode is None:
+        return False
+
+    barcode = str(barcode).strip()
+
+    if len(barcode) != BARCODE_LENGTH:
+        return False
+
+    return bool(
+        BARCODE_PATTERN.fullmatch(barcode)
+    )
+
+
+# =========================================================
+# SCANNER INPUT PARSER
+# =========================================================
+
+def parse_scanner_input(raw_input):
+    """
+    Supports normal and rapid merged scans.
+
+    Example:
+
+        SPXID064644420698SPXID064644420699
+
+    becomes:
+
+        [
+            "SPXID064644420698",
+            "SPXID064644420699"
+        ]
+    """
+
+    if raw_input is None:
+        return []
+
+    cleaned = re.sub(
+        r"\s+",
+        "",
+        str(raw_input),
+    )
+
+    if not cleaned:
+        return []
+
+    # Scanner data must consist entirely of complete
+    # 17-character barcode blocks.
+    if len(cleaned) % BARCODE_LENGTH != 0:
+        return []
+
+    barcodes = []
+
+    for start in range(
+        0,
+        len(cleaned),
+        BARCODE_LENGTH,
+    ):
+
+        barcode = cleaned[
+            start:
+            start + BARCODE_LENGTH
+        ]
+
+        if not is_valid_barcode(barcode):
+            return []
+
+        barcodes.append(barcode)
+
+    return barcodes
+
+
+# =========================================================
+# BARCODE REGISTRY
+# =========================================================
+
+class BarcodeRegistry:
+    """
+    Fast shared registry.
+
+    Duplicate lookup:
+        O(1)
+
+    Storage:
+        daily CSV
+
+    Duplicate IDs never reach CSV writing.
+    """
+
+    def __init__(self):
+
+        self.lock = threading.RLock()
+
+        # barcode -> first successful timestamp
+        self.codes = {}
+
+        self.current_day = (
+            datetime.date.today()
+            .isoformat()
+        )
+
+        # Successful records for today only.
+        self.today_records = []
+
+        self._load_existing_data()
+
+
+    # =====================================================
+    # LOAD EXISTING DATA
+    # =====================================================
+
+    def _load_existing_data(self):
+
+        today = (
+            datetime.date.today()
+            .isoformat()
+        )
+
+        csv_files = sorted(
+            glob(
+                os.path.join(
+                    DATA_DIR,
+                    "*.csv",
+                )
+            )
+        )
+
+        for csv_file in csv_files:
+
+            file_date = os.path.splitext(
+                os.path.basename(csv_file)
+            )[0]
+
+            try:
+
+                with open(
+                    csv_file,
+                    "r",
+                    newline="",
+                    encoding="utf-8",
+                ) as file:
+
+                    reader = csv.reader(file)
+
+                    for row in reader:
+
+                        if len(row) < 2:
+                            continue
+
+                        stored_value = str(
+                            row[0]
+                        ).strip()
+
+                        timestamp = str(
+                            row[1]
+                        ).strip()
+
+                        # Also understands older accidentally
+                        # merged records.
+                        parsed_barcodes = (
+                            parse_scanner_input(
+                                stored_value
+                            )
+                        )
+
+                        if not parsed_barcodes:
+                            continue
+
+                        for barcode in parsed_barcodes:
+
+                            # Keep first successful occurrence.
+                            if barcode not in self.codes:
+
+                                self.codes[
+                                    barcode
+                                ] = timestamp
+
+                            if file_date == today:
+
+                                self.today_records.append(
+                                    (
+                                        barcode,
+                                        timestamp,
+                                    )
+                                )
+
+            except Exception:
+                continue
+
+
+    # =====================================================
+    # MIDNIGHT HANDLING
+    # =====================================================
+
+    def ensure_current_day(self):
+
+        today = (
+            datetime.date.today()
+            .isoformat()
+        )
+
+        if self.current_day == today:
+            return
+
+        with self.lock:
+
+            if self.current_day == today:
+                return
+
+            self.current_day = today
+            self.today_records = []
+
+
+    # =====================================================
+    # PROCESS SCAN BATCH
+    # =====================================================
+
+    def process_batch(self, barcodes):
+        """
+        Process rapid scans under one lock.
+
+        Duplicate checking happens BEFORE file writing.
+
+        Therefore:
+        - duplicates are never stored
+        - invalid scans are never stored
+        """
+
+        self.ensure_current_day()
+
+        results = []
+
+        with self.lock:
+
+            today = (
+                datetime.date.today()
+                .isoformat()
+            )
+
+            today_csv = os.path.join(
+                DATA_DIR,
+                f"{today}.csv",
+            )
+
+            rows_to_write = []
+
+            new_records = []
+
+            # IDs first seen inside this same scan event.
+            batch_new_codes = {}
+
+
+            # -------------------------------------------------
+            # CLASSIFY
+            # -------------------------------------------------
+
+            for barcode in barcodes:
+
+                # =============================================
+                # PREVIOUSLY STORED DUPLICATE
+                # =============================================
+
+                if barcode in self.codes:
+
+                    results.append(
+                        {
+                            "status": "duplicate",
+                            "barcode": barcode,
+                            "timestamp": self.codes[
+                                barcode
+                            ],
+                        }
+                    )
+
+                    continue
+
+
+                # =============================================
+                # DUPLICATE WITHIN SAME RAPID BATCH
+                # =============================================
+
+                if barcode in batch_new_codes:
+
+                    results.append(
+                        {
+                            "status": "pending_duplicate",
+                            "barcode": barcode,
+                            "timestamp": batch_new_codes[
+                                barcode
+                            ],
+                        }
+                    )
+
+                    continue
+
+
+                # =============================================
+                # SUCCESS
+                # =============================================
+
+                timestamp = (
+                    datetime.datetime.now()
+                    .isoformat()
+                )
+
+                batch_new_codes[
+                    barcode
+                ] = timestamp
+
+                rows_to_write.append(
+                    [
+                        barcode,
+                        timestamp,
+                    ]
+                )
+
+                new_records.append(
+                    (
+                        barcode,
+                        timestamp,
+                    )
+                )
+
+                results.append(
+                    {
+                        "status": "success",
+                        "barcode": barcode,
+                        "timestamp": timestamp,
+                    }
+                )
+
+
+            # -------------------------------------------------
+            # SAVE SUCCESSFUL IDS ONLY
+            # -------------------------------------------------
+
+            if rows_to_write:
+
+                try:
+
+                    with open(
+                        today_csv,
+                        "a",
+                        newline="",
+                        encoding="utf-8",
+                    ) as csvfile:
+
+                        writer = csv.writer(
+                            csvfile
+                        )
+
+                        writer.writerows(
+                            rows_to_write
+                        )
+
+                except Exception as exc:
+
+                    for result in results:
+
+                        if result[
+                            "status"
+                        ] in (
+                            "success",
+                            "pending_duplicate",
+                        ):
+
+                            result[
+                                "status"
+                            ] = "error"
+
+                            result[
+                                "message"
+                            ] = str(exc)
+
+                    return results
+
+
+                # Memory is updated only AFTER disk write.
+                for barcode, timestamp in new_records:
+
+                    self.codes[
+                        barcode
+                    ] = timestamp
+
+                    self.today_records.append(
+                        (
+                            barcode,
+                            timestamp,
+                        )
+                    )
+
+
+            # -------------------------------------------------
+            # FINALIZE SAME-BATCH DUPLICATES
+            # -------------------------------------------------
+
+            for result in results:
+
+                if (
+                    result["status"]
+                    == "pending_duplicate"
+                ):
+
+                    result[
+                        "status"
+                    ] = "duplicate"
+
+
+        return results
+
+
+    # =====================================================
+    # TODAY'S SUCCESSFUL RECORDS
+    # =====================================================
+
+    def get_today_records(self):
+
+        self.ensure_current_day()
+
+        with self.lock:
+
+            return list(
+                self.today_records
+            )
+
+
+    # =====================================================
+    # TOTAL SUCCESSFUL SCANS
+    # =====================================================
+
+    def get_total_successful_scans(self):
+        """
+        Number of successfully accepted barcode IDs
+        across all loaded history.
+
+        Since duplicates are not stored, each entry
+        represents one successful scan.
+        """
+
+        with self.lock:
+
+            return len(
+                self.codes
+            )
+
+
+# =========================================================
+# VERSIONED STREAMLIT CACHE
+# =========================================================
+
+@st.cache_resource(
+    show_spinner=False
+)
+def get_barcode_registry(version):
+
+    return BarcodeRegistry()
+
+
+registry = get_barcode_registry(
+    REGISTRY_CACHE_VERSION
+)
+
+
+# =========================================================
+# SESSION STATE
+# =========================================================
+
+if "last_scan" not in st.session_state:
+
+    st.session_state.last_scan = None
+
+
+if "rapid_scan_count" not in st.session_state:
+
+    st.session_state.rapid_scan_count = 0
+
+
+# =========================================================
+# DISPLAY TIME
+# =========================================================
+
+def format_timestamp(timestamp):
+
+    try:
+
+        value = pd.to_datetime(
+            timestamp
+        )
+
+        return value.strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+
+    except Exception:
+
+        return str(timestamp)
+
+
+# =========================================================
+# SCANNER CALLBACK
+# =========================================================
+
+def barcode_submitted():
+
+    raw_input = st.session_state.get(
+        "barcode_input",
+        "",
+    )
+
+    # Clear immediately for next physical scan.
+    st.session_state.barcode_input = ""
+
+    if not raw_input:
+        return
+
+
+    # =====================================================
+    # PARSE
+    # =====================================================
+
+    barcodes = parse_scanner_input(
+        raw_input
+    )
+
+
+    # =====================================================
+    # INVALID
+    # =====================================================
+
+    if not barcodes:
+
+        cleaned = re.sub(
+            r"\s+",
+            "",
+            str(raw_input),
+        )
+
+        st.session_state.last_scan = {
+            "status": "invalid",
+            "barcode": cleaned,
+        }
+
+        st.session_state.rapid_scan_count = 0
+
+        play_sound(
+            "invalid"
+        )
+
+        return
+
+
+    # =====================================================
+    # PROCESS
+    # =====================================================
+
+    results = registry.process_batch(
+        barcodes
+    )
+
+    if not results:
+        return
+
+    # Last Scan Status represents the final barcode
+    # physically received.
+    last_result = results[-1]
+
+    st.session_state.last_scan = (
+        last_result
+    )
+
+    st.session_state.rapid_scan_count = (
+        len(barcodes)
+    )
+
+    play_sound(
+        last_result.get(
+            "status",
+            "error",
+        )
+    )
+
+
+# =========================================================
+# SCANNER READY PANEL
+# =========================================================
+
+st.markdown(
+    """
+<div class="scanner-ready">
+
+<div class="ready-dot"></div>
+
+<div>
+
+<div class="ready-title">
+Scanner ready
+</div>
+
+<div class="ready-description">
+Point the scanner at a parcel barcode and press the trigger
+</div>
+
+</div>
+
+</div>
+""",
+    unsafe_allow_html=True,
+)
+
+
+# =========================================================
+# SCANNER INPUT
+# =========================================================
+
+st.text_input(
+    "Scanner input",
+    key="barcode_input",
+    placeholder="Ready — scan barcode now",
+    on_change=barcode_submitted,
+    label_visibility="collapsed",
+)
+
+
+# =========================================================
+# LAST SCAN STATUS
+# =========================================================
+
+last_scan = (
+    st.session_state.last_scan
+)
+
+
+# ---------------------------------------------------------
+# WAITING
+# ---------------------------------------------------------
+
+if last_scan is None:
+
+    st.markdown(
+        """
+<div class="status-card status-waiting">
+
+<div class="status-label">
+LAST SCAN STATUS
+</div>
+
+<div class="status-title">
+Waiting for barcode
+</div>
+
+<div class="status-info">
+The next scan result will appear here.
+</div>
+
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+
 else:
-    st.info("No barcode scanned today.")
+
+    status = last_scan.get(
+        "status",
+        "error",
+    )
+
+    raw_barcode = str(
+        last_scan.get(
+            "barcode",
+            "",
+        )
+    )
+
+    safe_barcode = html.escape(
+        raw_barcode
+    )
+
+
+    # =====================================================
+    # SUCCESS
+    # =====================================================
+
+    if status == "success":
+
+        scan_time = format_timestamp(
+            last_scan.get(
+                "timestamp",
+                "",
+            )
+        )
+
+        st.markdown(
+            f"""
+<div class="status-card status-success">
+
+<div class="status-label">
+LAST SCAN STATUS
+</div>
+
+<div class="status-title">
+✅ SUCCESS
+</div>
+
+<div class="status-barcode">
+{safe_barcode}
+</div>
+
+<div class="status-info">
+Saved successfully · {scan_time}
+</div>
+
+</div>
+""",
+            unsafe_allow_html=True,
+        )
+
+
+    # =====================================================
+    # DUPLICATE
+    # =====================================================
+
+    elif status == "duplicate":
+
+        previous_time = format_timestamp(
+            last_scan.get(
+                "timestamp",
+                "",
+            )
+        )
+
+        st.markdown(
+            f"""
+<div class="status-card status-duplicate">
+
+<div class="status-label">
+LAST SCAN STATUS
+</div>
+
+<div class="status-title">
+🔁 DUPLICATE
+</div>
+
+<div class="status-barcode">
+{safe_barcode}
+</div>
+
+<div class="status-info">
+Previously scanned: {previous_time}<br>
+<strong>Not stored again</strong>
+</div>
+
+</div>
+""",
+            unsafe_allow_html=True,
+        )
+
+
+    # =====================================================
+    # INVALID
+    # =====================================================
+
+    elif status == "invalid":
+
+        display_value = raw_barcode
+
+        if len(display_value) > 60:
+
+            display_value = (
+                display_value[:60]
+                + "…"
+            )
+
+        safe_invalid = html.escape(
+            display_value
+        )
+
+        st.markdown(
+            f"""
+<div class="status-card status-invalid">
+
+<div class="status-label">
+LAST SCAN STATUS
+</div>
+
+<div class="status-title">
+⚠️ INVALID BARCODE
+</div>
+
+<div class="status-barcode">
+{safe_invalid}
+</div>
+
+<div class="status-info">
+Expected {VALID_PREFIX} + {BARCODE_DIGITS} digits<br>
+<strong>Not stored</strong>
+</div>
+
+</div>
+""",
+            unsafe_allow_html=True,
+        )
+
+
+    # =====================================================
+    # ERROR
+    # =====================================================
+
+    else:
+
+        safe_message = html.escape(
+            str(
+                last_scan.get(
+                    "message",
+                    "Unable to save barcode.",
+                )
+            )
+        )
+
+        st.markdown(
+            f"""
+<div class="status-card status-error">
+
+<div class="status-label">
+LAST SCAN STATUS
+</div>
+
+<div class="status-title">
+❌ SAVE ERROR
+</div>
+
+<div class="status-barcode">
+{safe_barcode}
+</div>
+
+<div class="status-info">
+{safe_message}<br>
+<strong>Barcode was not stored</strong>
+</div>
+
+</div>
+""",
+            unsafe_allow_html=True,
+        )
+
+
+# =========================================================
+# RAPID SCAN INDICATOR
+# =========================================================
+
+rapid_count = (
+    st.session_state.rapid_scan_count
+)
+
+
+if rapid_count > 1:
+
+    st.markdown(
+        f"""
+<div class="rapid-pill">
+⚡ {rapid_count} rapid scans processed individually
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+
+# =========================================================
+# TODAY'S DATA
+# =========================================================
+
+today = datetime.date.today()
+today_str = today.isoformat()
+
+records = registry.get_today_records()
+
+today_count = len(records)
+
+total_successful = (
+    registry.get_total_successful_scans()
+)
+
+
+# =========================================================
+# METRICS
+# =========================================================
+
+metric_col1, metric_col2 = st.columns(2)
+
+
+with metric_col1:
+
+    st.metric(
+        "Today's scans",
+        today_count,
+    )
+
+
+with metric_col2:
+
+    st.metric(
+        "Total successful scans",
+        total_successful,
+    )
+
+
+# =========================================================
+# TODAY'S SCANS TABLE
+# =========================================================
+
+st.markdown(
+    f"""
+<div class="section-title">
+Today's Scans — {today_str}
+</div>
+""",
+    unsafe_allow_html=True,
+)
+
+
+if records:
+
+    # -----------------------------------------------------
+    # CREATE TODAY DATAFRAME
+    # -----------------------------------------------------
+
+    df_today = pd.DataFrame(
+        records,
+        columns=[
+            "Barcode_ID",
+            "Timestamp",
+        ],
+    )
+
+
+    df_today["Timestamp"] = pd.to_datetime(
+        df_today["Timestamp"],
+        errors="coerce",
+    )
+
+
+    df_today = df_today.dropna(
+        subset=[
+            "Timestamp"
+        ]
+    )
+
+
+    df_today = df_today.sort_values(
+        "Timestamp",
+        ascending=False,
+    )
+
+
+    # -----------------------------------------------------
+    # DISPLAY VERSION
+    # -----------------------------------------------------
+
+    display_df = df_today.copy()
+
+
+    display_df.insert(
+        0,
+        "No.",
+        range(
+            1,
+            len(display_df) + 1,
+        ),
+    )
+
+
+    display_df["Timestamp"] = (
+        display_df["Timestamp"]
+        .dt.strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+    )
+
+
+    st.dataframe(
+        display_df,
+        use_container_width=True,
+        hide_index=True,
+    )
+
+
+    # =====================================================
+    # EXCEL DOWNLOAD
+    # =====================================================
+
+    import io
+
+
+    # Create separate dataframe for downloaded Excel file.
+    download_df = df_today[
+        [
+            "Barcode_ID",
+            "Timestamp",
+        ]
+    ].copy()
+
+
+    # Format timestamp
+    download_df["Timestamp"] = (
+        download_df["Timestamp"]
+        .dt.strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+    )
+
+
+    # Required Excel column names
+    download_df = download_df.rename(
+        columns={
+            "Barcode_ID": "dispatcher_id",
+            "Timestamp": "date",
+        }
+    )
+
+
+    # -----------------------------------------------------
+    # CREATE EXCEL IN MEMORY
+    # -----------------------------------------------------
+
+    excel_buffer = io.BytesIO()
+
+
+    with pd.ExcelWriter(
+        excel_buffer,
+        engine="xlsxwriter",
+    ) as writer:
+
+        download_df.to_excel(
+            writer,
+            index=False,
+            sheet_name="Today_Scans",
+        )
+
+
+        workbook = writer.book
+
+        worksheet = writer.sheets[
+            "Today_Scans"
+        ]
+
+
+        # -----------------------------------------------
+        # HEADER FORMAT
+        # -----------------------------------------------
+
+        header_format = workbook.add_format(
+            {
+                "bold": True,
+                "border": 1,
+                "align": "center",
+                "valign": "vcenter",
+            }
+        )
+
+
+        # Rewrite header with formatting
+        for col_num, column_name in enumerate(
+            download_df.columns
+        ):
+
+            worksheet.write(
+                0,
+                col_num,
+                column_name,
+                header_format,
+            )
+
+
+        # -----------------------------------------------
+        # COLUMN WIDTHS
+        # -----------------------------------------------
+
+        worksheet.set_column(
+            "A:A",
+            24,
+        )
+
+        worksheet.set_column(
+            "B:B",
+            22,
+        )
+
+
+        # -----------------------------------------------
+        # FREEZE HEADER
+        # -----------------------------------------------
+
+        worksheet.freeze_panes(
+            1,
+            0,
+        )
+
+
+        # -----------------------------------------------
+        # FILTER
+        # -----------------------------------------------
+
+        worksheet.autofilter(
+            0,
+            0,
+            len(download_df),
+            len(download_df.columns) - 1,
+        )
+
+
+    excel_buffer.seek(0)
+
+
+    # =====================================================
+    # DOWNLOAD BUTTON
+    # =====================================================
+
+    st.markdown("---")
+
+
+    st.download_button(
+        label="⬇️ Download Today's Scan File",
+        data=excel_buffer.getvalue(),
+        file_name=(
+            f"dispatcher_scans_"
+            f"{today_str}.xlsx"
+        ),
+        mime=(
+            "application/"
+            "vnd.openxmlformats-officedocument."
+            "spreadsheetml.sheet"
+        ),
+        use_container_width=True,
+    )
+
+
+else:
+
+    st.info(
+        f"No parcels scanned on {today_str}."
+    )
