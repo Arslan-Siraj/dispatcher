@@ -16,7 +16,7 @@ def show_app_dev_info():
             <div class="dispatcher-brand-copy">
                 <div class="dispatcher-brand-title">DISPATCHER</div>
                 <div class="dispatcher-brand-subtitle">Parcel Scan System</div>
-                <div class="dispatcher-sidebar-label">NAVIGASI v1.0.1</div>
+                <div class="dispatcher-sidebar-label">NAVIGASI v1.0.2</div>
             </div>
         </div>
         """,
