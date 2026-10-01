@@ -579,7 +579,7 @@ def play_sound(status):
 
 SHOPEE_PATTERN = re.compile(
     rf"^{re.escape(SHOPEE_PREFIX)}"
-    rf"\d{{{SHOPEE_DIGITS}}}$"
+    rf"[A-Z0-9]{{{SHOPEE_DIGITS}}}$"
 )
 
 JNT_PATTERN = re.compile(
