@@ -132,7 +132,7 @@ jobs:
         cat <<EOF > streamlit_exe.wxs
         <?xml version="1.0"?>
         <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
-          <Product Id="*" Name="${{ env.APP_NAME }}" Language="1033" Version="1.0.0.0" Codepage="0" Manufacturer="AS solution Team" UpgradeCode="${{ env.APP_UpgradeCode }}">
+          <Product Id="*" Name="${{ env.APP_NAME }}" Language="1033" Version="1.0.2.0" Codepage="0" Manufacturer="AS solution Team" UpgradeCode="${{ env.APP_UpgradeCode }}">
             <Package Id="*" InstallerVersion="300" Compressed="yes" InstallPrivileges="elevated" Platform="x64" />
             <MediaTemplate EmbedCab="yes" MaximumUncompressedMediaSize="200" CabinetTemplate="data{0}.cab" />
         
